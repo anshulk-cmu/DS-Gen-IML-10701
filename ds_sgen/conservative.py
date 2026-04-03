@@ -1,0 +1,478 @@
+"""Method 2: Conservative Threshold — naive domain-shift fix for SGen-Semi.
+
+This module is self-contained: it reimplements the SGen-Semi split logic with
+three conservative options, each designed to restore PAC FDR-E validity under
+domain shift at the cost of reduced selection efficiency.
+
+Options:
+  A — Safety factor on (tau1, tau2) after grid search.
+      tau1 += log(gamma)  (fM1 is log-scale)
+      tau2 *= gamma        (fM2 is in [0,1])
+
+  B — Reduced epsilon in the grid search constraint.
+      Use epsilon_eff = epsilon / k instead of epsilon.
+      Evaluate validity against the *original* epsilon for fair comparison.
+
+  C — Delta budget allocation for potential domain shift.
+      Reserve a fraction of delta for shift: delta_cp = delta - delta_p - delta_s.
+      Smaller delta_adj widens Clopper-Pearson bounds, making selection stricter.
+
+Paper reference:
+  Lee et al., "Selective Generation for Controllable LMs" (NeurIPS 2024)
+  Algorithm 2 (SGen-Semi) — extended here with conservative modifications.
+"""
+
+import logging
+import time
+
+import numpy as np
+from scipy.stats import beta as beta_dist
+
+from ds_sgen.utils import save_cache
+
+logger = logging.getLogger(__name__)
+
+
+# ── Helpers (same math as sgen_semi.py, kept here for self-containment) ──────
+
+def _merge_records(records, generations, entailments):
+    """Merge data, generation, and entailment results into unified records."""
+    merged = []
+    for rec, gen, ent in zip(records, generations, entailments):
+        merged.append({
+            "idx": rec["idx"],
+            "question": rec["question"],
+            "reference_answer": rec["reference_answer"],
+            "greedy_answer": gen["greedy_answer"],
+            "fM1": gen["mean_logprob"],
+            "fM2": ent["fM2"],
+            "entail_score": ent["entail_score"],
+            "entail_label": ent["entail_label"],
+            "dataset": rec["dataset"],
+        })
+    return merged
+
+
+def _compute_conformal_threshold(scores: np.ndarray, epsilon_e: float) -> float:
+    """Split conformal threshold: tau_CP = sorted[ceil((n+1)(1-eps_e)) - 1]."""
+    n = len(scores)
+    k = int(np.ceil((n + 1) * (1 - epsilon_e)))
+    if k > n:
+        return float("inf")
+    sorted_scores = np.sort(scores)
+    return float(sorted_scores[k - 1])
+
+
+def _build_percentile_grid(values: np.ndarray, n_grid: int) -> np.ndarray:
+    """Build threshold grid from percentiles of observed values."""
+    percentiles = np.linspace(0, 100, n_grid)
+    grid = np.percentile(values, percentiles)
+    return np.unique(grid)
+
+
+def _clopper_pearson_upper(failures: int, total: int, alpha: float) -> float:
+    """Clopper-Pearson upper confidence bound on P(failure)."""
+    if total == 0:
+        return 0.0
+    if failures == total:
+        return 1.0
+    return float(beta_dist.ppf(1 - alpha, failures + 1, total - failures))
+
+
+# ── Core: single-split with conservative overrides ──────────────────────────
+
+def _run_single_split(
+    nq_merged: list[dict],
+    tqa_merged: list[dict],
+    split_seed: int,
+    sgen_cfg: dict,
+    *,
+    epsilon_effective: float | None = None,
+    delta_shift: float = 0.0,
+    tau_safety_factor: float = 1.0,
+) -> dict:
+    """Run one calibration/test split with conservative modifications.
+
+    This mirrors sgen_semi._run_single_split() but injects three knobs:
+      epsilon_effective  — Option B (reduced epsilon in grid constraint)
+      delta_shift        — Option C (delta budget reserved for shift)
+      tau_safety_factor  — Option A (post-hoc threshold inflation)
+
+    The evaluation always uses the *original* epsilon for fair validity checks.
+    """
+    epsilon = sgen_cfg["epsilon"]
+    if epsilon_effective is None:
+        epsilon_effective = epsilon
+
+    delta = sgen_cfg["delta"]
+    delta_p = sgen_cfg["delta_p"]
+    cal_frac = sgen_cfg["cal_frac"]
+    zu_frac = sgen_cfg["zu_frac"]
+    epsilon_e = sgen_cfg["epsilon_e"]
+    n_grid = sgen_cfg["n_grid"]
+
+    n_nq = len(nq_merged)
+    rng = np.random.RandomState(split_seed)
+
+    # Step 1: Split NQ into calibration and in-domain test
+    indices = rng.permutation(n_nq)
+    cal_size = int(np.floor(n_nq * cal_frac))
+    cal_idx = indices[:cal_size]
+    test_idx = indices[cal_size:]
+
+    cal_data = [nq_merged[i] for i in cal_idx]
+    nq_test = [nq_merged[i] for i in test_idx]
+
+    # Step 2: Split calibration into Z_U (unlabeled) and Z_E (labeled)
+    zu_size = int(np.floor(len(cal_data) * zu_frac))
+    z_u = cal_data[:zu_size]
+    z_e = cal_data[zu_size:]
+
+    # Step 3: Conformal threshold from Z_E
+    ze_scores = np.array([r["entail_score"] for r in z_e])
+    tau_cp = _compute_conformal_threshold(ze_scores, epsilon_e)
+
+    # Step 4: Pseudo-label Z_U
+    for r in z_u:
+        r["pseudo_label"] = 1 if r["entail_score"] >= tau_cp else 0
+
+    # Step 5: Grid search
+    zu_fM1 = np.array([r["fM1"] for r in z_u])
+    zu_fM2 = np.array([r["fM2"] for r in z_u])
+    zu_pseudo = np.array([r["pseudo_label"] for r in z_u])
+
+    tau1_grid = _build_percentile_grid(zu_fM1, n_grid)
+    tau2_grid = _build_percentile_grid(zu_fM2, n_grid)
+    H = len(tau1_grid) * len(tau2_grid)
+
+    # ── Option C: reduced delta budget ──
+    delta_cp = delta - delta_p - delta_shift
+    if delta_cp <= 0:
+        logger.warning("delta_cp=%.6f <= 0 (delta_shift=%.4f too large). "
+                        "No valid thresholds possible — abstaining on all.",
+                        delta_cp, delta_shift)
+        abstain = {"fdr_e": 0.0, "efficiency": 0.0, "valid": True,
+                   "n_selected": 0, "n_total": 0}
+        return {
+            "split_seed": split_seed, "cal_size": len(cal_data),
+            "zu_size": len(z_u), "ze_size": len(z_e), "tau_cp": tau_cp,
+            "tau1": None, "tau2": None, "grid_size_H": H,
+            "epsilon_effective": epsilon_effective,
+            "delta_shift": delta_shift, "tau_safety_factor": tau_safety_factor,
+            "nq_test": {**abstain, "n_total": len(nq_test)},
+            "tqa": {**abstain, "n_total": len(tqa_merged)},
+        }
+    delta_adj = delta_cp / H if H > 0 else delta_cp
+
+    best_tau1, best_tau2 = None, None
+    best_efficiency = -1.0
+
+    for t1 in tau1_grid:
+        selected = zu_fM1 >= t1
+        for t2 in tau2_grid:
+            sel = selected & (zu_fM2 >= t2)
+            m = sel.sum()
+            if m == 0:
+                continue
+
+            failures = int((sel & (zu_pseudo == 0)).sum())
+            cp_upper = _clopper_pearson_upper(failures, int(m), delta_adj)
+
+            # ── Option B: use epsilon_effective (possibly < epsilon) ──
+            if cp_upper <= epsilon_effective:
+                efficiency = m / len(z_u)
+                if efficiency > best_efficiency:
+                    best_efficiency = efficiency
+                    best_tau1 = t1
+                    best_tau2 = t2
+
+    # ── Option A: inflate thresholds by safety factor ──
+    if best_tau1 is not None and tau_safety_factor != 1.0:
+        best_tau1 = best_tau1 + np.log(tau_safety_factor)  # fM1 is log-scale
+        best_tau2 = min(best_tau2 * tau_safety_factor, 1.0)  # fM2 in [0,1]
+
+    # Step 6: Evaluate on test sets (always against original epsilon)
+    def _evaluate(data, tau1, tau2):
+        if tau1 is None or tau2 is None:
+            return {"fdr_e": 0.0, "efficiency": 0.0, "valid": True,
+                    "n_selected": 0, "n_total": len(data)}
+        fM1 = np.array([r["fM1"] for r in data])
+        fM2 = np.array([r["fM2"] for r in data])
+        labels = np.array([r["entail_label"] for r in data])
+
+        selected = (fM1 >= tau1) & (fM2 >= tau2)
+        n_selected = int(selected.sum())
+        if n_selected == 0:
+            return {"fdr_e": 0.0, "efficiency": 0.0, "valid": True,
+                    "n_selected": 0, "n_total": len(data)}
+
+        n_wrong = int((selected & (labels == 0)).sum())
+        fdr_e = n_wrong / n_selected
+        efficiency = n_selected / len(data)
+        valid = fdr_e <= epsilon   # always original epsilon
+        return {"fdr_e": fdr_e, "efficiency": efficiency, "valid": valid,
+                "n_selected": n_selected, "n_total": len(data)}
+
+    nq_result = _evaluate(nq_test, best_tau1, best_tau2)
+    tqa_result = _evaluate(tqa_merged, best_tau1, best_tau2)
+
+    return {
+        "split_seed": split_seed,
+        "cal_size": len(cal_data),
+        "zu_size": len(z_u),
+        "ze_size": len(z_e),
+        "tau_cp": tau_cp,
+        "tau1": best_tau1,
+        "tau2": best_tau2,
+        "grid_size_H": H,
+        "epsilon_effective": epsilon_effective,
+        "delta_shift": delta_shift,
+        "tau_safety_factor": tau_safety_factor,
+        "nq_test": nq_result,
+        "tqa": tqa_result,
+    }
+
+
+# ── Sweep runner for a single option ────────────────────────────────────────
+
+def _run_sweep(
+    nq_merged: list[dict],
+    tqa_merged: list[dict],
+    sgen_cfg: dict,
+    base_seed: int,
+    n_splits: int,
+    *,
+    epsilon_effective: float | None = None,
+    delta_shift: float = 0.0,
+    tau_safety_factor: float = 1.0,
+    label: str = "",
+) -> dict:
+    """Run n_splits with given conservative overrides, return aggregated metrics."""
+    per_split = []
+    for s in range(n_splits):
+        split_seed = base_seed + s
+        result = _run_single_split(
+            nq_merged, tqa_merged, split_seed, sgen_cfg,
+            epsilon_effective=epsilon_effective,
+            delta_shift=delta_shift,
+            tau_safety_factor=tau_safety_factor,
+        )
+        per_split.append(result)
+
+    nq_fdr = [r["nq_test"]["fdr_e"] for r in per_split]
+    nq_eff = [r["nq_test"]["efficiency"] for r in per_split]
+    nq_val = [r["nq_test"]["valid"] for r in per_split]
+    tqa_fdr = [r["tqa"]["fdr_e"] for r in per_split]
+    tqa_eff = [r["tqa"]["efficiency"] for r in per_split]
+    tqa_val = [r["tqa"]["valid"] for r in per_split]
+
+    summary = {
+        "nq": {
+            "validity_rate": float(np.mean(nq_val)),
+            "mean_fdr_e": float(np.mean(nq_fdr)),
+            "std_fdr_e": float(np.std(nq_fdr)),
+            "mean_efficiency": float(np.mean(nq_eff)),
+            "std_efficiency": float(np.std(nq_eff)),
+        },
+        "tqa": {
+            "validity_rate": float(np.mean(tqa_val)),
+            "mean_fdr_e": float(np.mean(tqa_fdr)),
+            "std_fdr_e": float(np.std(tqa_fdr)),
+            "mean_efficiency": float(np.mean(tqa_eff)),
+            "std_efficiency": float(np.std(tqa_eff)),
+        },
+        "per_split": per_split,
+    }
+
+    logger.info("  %-30s | NQ valid=%.2f  eff=%.3f | TQA valid=%.2f  eff=%.3f",
+                label,
+                summary["nq"]["validity_rate"], summary["nq"]["mean_efficiency"],
+                summary["tqa"]["validity_rate"], summary["tqa"]["mean_efficiency"])
+
+    return summary
+
+
+# ── Public API ──────────────────────────────────────────────────────────────
+
+def run_conservative_experiment(
+    cfg: dict,
+    nq_records: list[dict], nq_gen: list[dict], nq_ent: list[dict],
+    tqa_records: list[dict], tqa_gen: list[dict], tqa_ent: list[dict],
+) -> dict:
+    """Run Method 2: Conservative Threshold with all three options.
+
+    Each option is swept over multiple parameter values. Results are saved
+    to {results_dir}/conservative_results.json.
+
+    Returns dict with keys "option_a", "option_b", "option_c", each
+    containing sub-dicts keyed by the sweep parameter value.
+    """
+    sgen_cfg = cfg["sgen"]
+    cons_cfg = cfg["conservative"]
+    base_seed = cfg["seed"]
+    n_splits = cons_cfg.get("n_splits") or sgen_cfg["n_splits"]
+    epsilon = sgen_cfg["epsilon"]
+    delta = sgen_cfg["delta"]
+    delta_p = sgen_cfg["delta_p"]
+
+    logger.info("=" * 60)
+    logger.info("Method 2: Conservative Threshold")
+    logger.info("=" * 60)
+    logger.info("  Base epsilon=%.3f, delta=%.4f, n_splits=%d", epsilon, delta, n_splits)
+
+    t0 = time.time()
+
+    # Merge records once
+    nq_merged = _merge_records(nq_records, nq_gen, nq_ent)
+    tqa_merged = _merge_records(tqa_records, tqa_gen, tqa_ent)
+    logger.info("  Merged %d NQ + %d TQA records", len(nq_merged), len(tqa_merged))
+
+    results = {}
+
+    # ── Option A: Safety Factor on Thresholds ──
+    safety_factors = cons_cfg["safety_factors"]
+    logger.info("")
+    logger.info("Option A: Safety Factor on Thresholds (gamma)")
+    logger.info("  tau1 += log(gamma), tau2 *= gamma")
+    logger.info("  Sweep: %s", safety_factors)
+    logger.info("  %-30s | %-22s | %-22s", "Setting", "NQ", "TQA")
+    logger.info("  " + "-" * 78)
+
+    option_a = {}
+    for gamma in safety_factors:
+        label = f"gamma={gamma:.1f}"
+        option_a[str(gamma)] = _run_sweep(
+            nq_merged, tqa_merged, sgen_cfg, base_seed, n_splits,
+            tau_safety_factor=gamma,
+            label=label,
+        )
+    results["option_a"] = option_a
+
+    # ── Option B: Reduced Epsilon ──
+    epsilon_divisors = cons_cfg["epsilon_divisors"]
+    logger.info("")
+    logger.info("Option B: Reduced Epsilon in Grid Search")
+    logger.info("  constraint: cp_upper <= epsilon/k  (evaluate against original epsilon)")
+    logger.info("  Sweep: divisors=%s -> effective eps=%s",
+                epsilon_divisors,
+                [f"{epsilon/k:.3f}" for k in epsilon_divisors])
+    logger.info("  %-30s | %-22s | %-22s", "Setting", "NQ", "TQA")
+    logger.info("  " + "-" * 78)
+
+    option_b = {}
+    for k in epsilon_divisors:
+        eps_eff = epsilon / k
+        label = f"eps_div={k:.1f} (eps_eff={eps_eff:.3f})"
+        option_b[str(k)] = _run_sweep(
+            nq_merged, tqa_merged, sgen_cfg, base_seed, n_splits,
+            epsilon_effective=eps_eff,
+            label=label,
+        )
+    results["option_b"] = option_b
+
+    # ── Option C: Delta Budget Allocation ──
+    delta_shift_fracs = cons_cfg["delta_shift_fracs"]
+    logger.info("")
+    logger.info("Option C: Delta Budget Allocation for Shift")
+    logger.info("  delta_cp = delta - delta_p - frac*(delta - delta_p)")
+    logger.info("  Sweep: fracs=%s -> delta_shift=%s",
+                delta_shift_fracs,
+                [f"{f * (delta - delta_p):.6f}" for f in delta_shift_fracs])
+    logger.info("  %-30s | %-22s | %-22s", "Setting", "NQ", "TQA")
+    logger.info("  " + "-" * 78)
+
+    option_c = {}
+    for frac in delta_shift_fracs:
+        ds = frac * (delta - delta_p)
+        label = f"frac={frac:.2f} (delta_s={ds:.6f})"
+        option_c[str(frac)] = _run_sweep(
+            nq_merged, tqa_merged, sgen_cfg, base_seed, n_splits,
+            delta_shift=ds,
+            label=label,
+        )
+    results["option_c"] = option_c
+
+    elapsed = time.time() - t0
+    logger.info("")
+    logger.info("Method 2 complete in %.1f seconds", elapsed)
+
+    # Save results
+    results_path = f"{cfg['paths']['results_dir']}/conservative_results.json"
+    # Strip per_split data for the saved file to keep it manageable
+    save_data = {
+        "config": {
+            "sgen": sgen_cfg,
+            "conservative": cons_cfg,
+            "seed": cfg["seed"],
+        },
+        "option_a": {k: {kk: vv for kk, vv in v.items() if kk != "per_split"}
+                     for k, v in option_a.items()},
+        "option_b": {k: {kk: vv for kk, vv in v.items() if kk != "per_split"}
+                     for k, v in option_b.items()},
+        "option_c": {k: {kk: vv for kk, vv in v.items() if kk != "per_split"}
+                     for k, v in option_c.items()},
+    }
+    save_cache(save_data, results_path)
+    logger.info("  Results saved to %s", results_path)
+
+    return results
+
+
+def print_conservative_summary(results: dict):
+    """Print formatted comparison table for all conservative options."""
+    print()
+    print("=" * 90)
+    print("METHOD 2: CONSERVATIVE THRESHOLD RESULTS")
+    print("=" * 90)
+
+    header = (f"  {'Setting':<32} | {'NQ Valid':>8} {'NQ FDR':>8} {'NQ Eff':>8}"
+              f" | {'TQA Valid':>9} {'TQA FDR':>8} {'TQA Eff':>8}")
+    sep = "  " + "-" * 86
+
+    # Option A
+    print("\n  Option A: Safety Factor on Thresholds")
+    print(f"  (tau1 += log(gamma), tau2 *= gamma)")
+    print(header)
+    print(sep)
+    for key, val in results["option_a"].items():
+        nq, tqa = val["nq"], val["tqa"]
+        label = f"gamma = {key}"
+        print(f"  {label:<32} | {nq['validity_rate']:>7.1%} {nq['mean_fdr_e']:>8.4f}"
+              f" {nq['mean_efficiency']:>8.4f}"
+              f" | {tqa['validity_rate']:>8.1%} {tqa['mean_fdr_e']:>8.4f}"
+              f" {tqa['mean_efficiency']:>8.4f}")
+
+    # Option B
+    print(f"\n  Option B: Reduced Epsilon")
+    print(f"  (grid search uses eps/k, evaluate against original eps)")
+    print(header)
+    print(sep)
+    for key, val in results["option_b"].items():
+        nq, tqa = val["nq"], val["tqa"]
+        k = float(key)
+        eps_eff = 0.25 / k
+        label = f"eps/{key} = {eps_eff:.3f}"
+        print(f"  {label:<32} | {nq['validity_rate']:>7.1%} {nq['mean_fdr_e']:>8.4f}"
+              f" {nq['mean_efficiency']:>8.4f}"
+              f" | {tqa['validity_rate']:>8.1%} {tqa['mean_fdr_e']:>8.4f}"
+              f" {tqa['mean_efficiency']:>8.4f}")
+
+    # Option C
+    print(f"\n  Option C: Delta Budget Allocation")
+    print(f"  (reserve frac of delta for shift)")
+    print(header)
+    print(sep)
+    for key, val in results["option_c"].items():
+        nq, tqa = val["nq"], val["tqa"]
+        label = f"frac = {key}"
+        print(f"  {label:<32} | {nq['validity_rate']:>7.1%} {nq['mean_fdr_e']:>8.4f}"
+              f" {nq['mean_efficiency']:>8.4f}"
+              f" | {tqa['validity_rate']:>8.1%} {tqa['mean_fdr_e']:>8.4f}"
+              f" {tqa['mean_efficiency']:>8.4f}")
+
+    print()
+    print("=" * 90)
+    print("  Key: Valid = P(FDR-E <= 0.25) across 100 splits | "
+          "FDR-E = mean empirical error | Eff = selection rate")
+    print("=" * 90)
+    print()
