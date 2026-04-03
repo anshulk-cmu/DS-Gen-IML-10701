@@ -84,7 +84,7 @@ We design experiments to test across progressively harder domain shifts:
 
 We test across a range of LLM architectures to ensure generality:
 
-**Primary models:** LLaMA-3.1-8B-Instruct and LLaMA-3.2-3B (open-source, white-box access for confidence scores and token probabilities). These are the workhorses for ablation studies.
+**Primary model (PoC):** LLaMA-3.1-8B-Instruct (open-source, white-box access for confidence scores and token probabilities). This is the workhorse for the 10-701 PoC and initial ablation studies.
 
 **Scale test:** LLaMA-3.1-70B-Instruct (to verify that results hold at larger scale).
 
@@ -92,7 +92,7 @@ We test across a range of LLM architectures to ensure generality:
 
 **Comparison baselines:** Qwen2.5-7B-Instruct and Mistral-7B-v0.3 (to verify model-agnosticity across families).
 
-**Entailment model:** DeBERTa-v3-large fine-tuned on MNLI (for entailment-based correctness scoring, following SGen).
+**Entailment model:** DeBERTa-v2-xxlarge-mnli (1.5B params, label order: {0:CONTRADICTION, 1:NEUTRAL, 2:ENTAILMENT}) for entailment-based correctness scoring, following SGen.
 
 **Embedding model:** all-MiniLM-L6-v2 or BGE-large-en-v1.5 (for prompt embeddings in the density ratio estimation pipeline).
 

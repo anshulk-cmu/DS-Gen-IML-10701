@@ -44,18 +44,22 @@ The key principle: **one dataset, two models, three methods, one clean story.** 
 - Split NQ into train (for LLM few-shot if needed), calibration (for conformal/SGen), and validation (for hyperparameter tuning). TriviaQA is the held-out test domain — never touched during development.
 - This creates a real, meaningful domain shift: NQ consists of genuine Google search queries (how people naturally ask things), while TriviaQA consists of trivia-style questions (more specific, factual, differently phrased).
 
-**Two LLMs: LLaMA-3.2-3B-Instruct (primary) and Mistral-7B-v0.3-Instruct (secondary).**
-- LLaMA-3.2-3B is small enough to run on a single GPU (important for compute constraints) but large enough to generate meaningful open-ended answers. We have white-box access for token log-probabilities.
-- Mistral-7B as a second model proves method generality across architectures. If compute is tight, we report Mistral results on a subset.
+**One LLM: LLaMA-3.1-8B-Instruct.**
+- LLaMA-3.1-8B fits on a single A6000 GPU (48GB VRAM, ~16GB for fp16 inference) and generates high-quality open-ended answers. We have white-box access for token log-probabilities.
 - We do NOT need GPT-4 or 70B models for the PoC. The research question is about the *statistical framework*, not the base model quality.
+- A second model (e.g., Mistral-7B) may be added if compute allows, but is not required for the core story.
 
 **Three methods (≥1 baseline + ≥1 proposed, we do three for rigor):**
 
 **Method 1 — Vanilla SGen-Semi (Baseline 1: No shift handling).**
 Implement the original SGen-Semi algorithm from Lee et al. (2024) as faithfully as possible. This uses standard (unweighted) conformal prediction for pseudo-labeling, standard binomial bounds for PAC guarantees, and a simple selection function (threshold on self-consistency score). This is our "what happens if you ignore domain shift" baseline. We expect the PAC guarantee to fail when calibrated on NQ and tested on TriviaQA — this is the motivating failure we want to demonstrate.
 
-**Method 2 — Threshold Recalibration (Baseline 2: Naive shift handling).**
-A simple approach: instead of importance reweighting, just set a more conservative threshold. Increase ε (the target FDR-E) or δ (the failure probability) by a heuristic safety margin to account for shift. This is what a practitioner would do without our method — "just be more cautious." We expect this to restore validity but at a severe cost to efficiency (the model says "I don't know" too often).
+**Method 2 — Conservative Threshold (Baseline 2: Naive shift handling).**
+Three options for making SGen-Semi more conservative without explicit domain-shift modeling:
+  - **Option A — Safety Factor:** After grid search finds (tau1, tau2), inflate thresholds: tau1 += log(gamma) (fM1 is log-scale), tau2 *= gamma (fM2 in [0,1]). Swept over gamma = {1.0, 1.2, 1.5, 2.0}.
+  - **Option B — Reduced Epsilon:** Use epsilon_eff = epsilon/k in the grid search constraint, but evaluate validity against the original epsilon. Swept over k = {1.0, 1.5, 2.0, 3.0, 4.0}.
+  - **Option C — Delta Budget Allocation:** Reserve a fraction of delta for potential shift: delta_cp = delta - delta_p - delta_s. Smaller delta_adj widens Clopper-Pearson bounds. Swept over frac = {0.0, 0.25, 0.50, 0.75}.
+This is what a practitioner would do without our method — "just be more cautious." We expect this to restore validity but at a severe cost to efficiency (the model says "I don't know" too often).
 
 **Method 3 — DS-SGen with Importance Reweighting (Our Proposed Method).**
 The core contribution. Embed prompts using a sentence transformer (all-MiniLM-L6-v2), train a domain classifier (logistic regression on embeddings) to distinguish NQ from TriviaQA prompts, convert classifier probabilities to importance weights, clip extreme weights, and plug these into weighted versions of SGen's binomial bounds. The selection function adds domain similarity as a third signal. This should restore validity (PAC guarantee holds) while maintaining high efficiency (the model answers most questions it can).
@@ -119,41 +123,39 @@ These six papers form two parallel tracks — selective prediction (SGen, Confor
 - Split NQ into: Calibration (70%), Validation (15%), Held-in Test (15%). TriviaQA is entirely held-out test (the shifted domain).
 
 **Step 2: Generate LLM responses.**
-- For each question in NQ-cal, NQ-val, NQ-test, and TriviaQA-test, generate 5 sampled responses from LLaMA-3.2-3B using temperature=0.7.
-- Store: question, ground truth answer, 5 generated responses, per-token log-probabilities for each response.
-- This is the most compute-intensive step. Pre-generate and cache everything.
+- For each question in NQ and TriviaQA, generate a greedy answer (with per-token log-probs for fM1) plus K=5 sampled responses from LLaMA-3.1-8B-Instruct using temperature=0.7 and chat template.
+- Store: question, greedy answer, mean log-prob, per-token log-probs, 5 sampled answers.
+- This is the most compute-intensive step (~1-2 hours on A6000). Pre-generate and cache everything with incremental saves every 50 questions.
 
 **Step 3: Compute confidence scores.**
-- Self-consistency score: fraction of the 5 responses that agree (measured by pairwise entailment using DeBERTa-v3-large MNLI).
-- Token log-probability score: average log-probability of the most likely response.
+- Self-consistency score (fM2): fraction of the K=5 sampled pairs that bidirectionally entail (measured by pairwise NLI using DeBERTa-v2-xxlarge-mnli, label order: {0:CONTRADICTION, 1:NEUTRAL, 2:ENTAILMENT}).
+- Token log-probability score (fM1): average log-probability of greedy answer tokens.
 - Both scores are computed once and cached.
 
 **Step 4: Compute entailment labels.**
-- For each (question, response, ground_truth) triple, use DeBERTa-v3-large fine-tuned on MNLI to determine if the response entails the ground truth.
-- Label: 1 if entailed (correct), 0 if not (hallucination).
-- This is the "correctness" label that SGen uses.
+- For each (question, greedy_answer, reference_answer) triple, use DeBERTa-v2-xxlarge-mnli to determine if the greedy answer entails the reference (unidirectional argmax).
+- Label: 1 if argmax == ENTAILMENT, 0 otherwise.
+- Also store continuous P(entailment) for conformal thresholding.
 
-### 4.2 Method 1 — Vanilla SGen-Semi (Baseline)
+### 4.2 Method 1 — Vanilla SGen-Semi (Baseline) — **IMPLEMENTED** in `sgen_semi.py`
 
-Implement Algorithm 2 from Lee et al. (2024):
+Implements Algorithm 2 from Lee et al. (2024) with 100 random calibration splits:
 
-1. Use calibration set (NQ-cal) to learn a conformal entailment set via standard split conformal prediction.
-2. Pseudo-label unlabeled data using the conformal set.
-3. Decompose FDR-E into FER + FNER + NER (Lemma 1 from SGen).
-4. Bound each component using binomial tail bounds on the calibration data.
-5. Set selection threshold τ to maximize efficiency subject to: P{FDR-E ≤ ε} ≥ 1−δ.
-6. At test time: for each question, compute confidence score; if score ≥ τ, answer; else, say "I don't know."
+1. Split NQ into 70% calibration / 30% in-domain test.
+2. Split calibration into 75% Z_U (unlabeled) / 25% Z_E (labeled).
+3. Compute conformal threshold from Z_E entailment scores: tau_CP = sorted[ceil((n+1)(1-epsilon_e)) - 1].
+4. Pseudo-label Z_U: correct if entail_score >= tau_CP.
+5. Grid search over 50x50 percentile grid of (tau1, tau2) pairs. For each: count selected (fM1 >= tau1 AND fM2 >= tau2), count failures, compute Clopper-Pearson upper bound with Bonferroni correction (delta_adj = (delta - delta_p) / |H|). Keep highest-efficiency pair where bound <= epsilon.
+6. Evaluate on NQ-test (in-domain, should work) and full TriviaQA (shifted, should fail).
 
-Evaluate on NQ-test (in-domain, should work) and TriviaQA-test (shifted, should fail).
+### 4.3 Method 2 — Conservative Threshold (Baseline) — **IMPLEMENTED** in `conservative.py`
 
-### 4.3 Method 2 — Conservative Threshold (Baseline)
+Same SGen-Semi split logic with three conservative overrides, each swept over multiple values:
+- **Option A (Safety Factor):** After grid search, inflate: tau1 += log(gamma), tau2 *= gamma. Sweep gamma = {1.0, 1.2, 1.5, 2.0}.
+- **Option B (Reduced Epsilon):** Grid search uses eps_eff = epsilon/k. Evaluate against original epsilon. Sweep k = {1.0, 1.5, 2.0, 3.0, 4.0}.
+- **Option C (Delta Budget):** Reserve frac of (delta - delta_p) for shift: delta_cp = delta - delta_p - delta_s. Sweep frac = {0.0, 0.25, 0.50, 0.75}.
 
-Same as Method 1, but inflate the threshold:
-- Option A: Multiply τ by a safety factor (e.g., 1.2, 1.5, 2.0).
-- Option B: Use a smaller ε (e.g., ε/2) to be more conservative.
-- Option C: Use Bonferroni-style correction, allocating some δ budget to "potential shift."
-
-Evaluate on TriviaQA-test. This should restore validity but at the cost of much lower efficiency (many more "I don't know" responses).
+Evaluate on TriviaQA. Expected: restores validity but at severe efficiency cost.
 
 ### 4.4 Method 3 — DS-SGen (Proposed)
 
@@ -208,25 +210,25 @@ Vary: (a) weight clipping percentile (90th, 95th, 99th, no clipping), (b) embedd
 
 | Task | Owner | Support | Deadline |
 |---|---|---|---|
-| **Data pipeline** (download NQ, TriviaQA, preprocess, splits) | **Lily** | Justin | March 17 |
-| **LLM inference** (generate responses, cache log-probs) | **Justin** | [You] | March 20 |
-| **Entailment scoring** (DeBERTa setup, compute labels) | **Lily** | Justin | March 22 |
-| **Method 1: Vanilla SGen** (implement from paper) | **[You]** | Lily | March 28 |
-| **Method 2: Conservative Threshold** (implement) | **Justin** | [You] | March 30 |
-| **Method 3: DS-SGen** (embeddings, classifier, weights, weighted bounds) | **[You]** | Lily, Justin | April 5 |
-| **Experiments 1–3** (main results, plots) | **Lily** | [You] | April 8 |
-| **Check-in writeup** (4 pages) | **[You]** | All | April 8 |
-| **Experiments 4–5** (analysis, sensitivity) | **Justin** | Lily | April 14 |
-| **Final report writing** (8 pages) | **[You]** | All | April 20 |
-| **Video showcase** (4 min) | **Lily** | Justin | April 20 |
-| **Code cleanup and documentation** | **Justin** | All | April 22 |
+| **Data pipeline** (download NQ, TriviaQA, preprocess, splits) | **Anshul** | Justin | March 17 |
+| **LLM inference** (generate responses, cache log-probs) | **Anshul** | Justin | March 20 |
+| **Entailment scoring** (DeBERTa setup, compute labels) | **Anshul** | Justin | March 22 |
+| **Method 1: Vanilla SGen** (implement from paper) | **Anshul** | Justin | March 28 |
+| **Method 2: Conservative Threshold** (implement) | **Anshul** | Justin | March 30 |
+| **Method 3: DS-SGen** (embeddings, classifier, weights, weighted bounds) | **Anshul** | Justin | April 5 |
+| **Experiments 1–3** (main results, plots) | **Justin** | Anshul | April 8 |
+| **Check-in writeup** (4 pages) | **Anshul** | Justin | April 8 |
+| **Experiments 4–5** (analysis, sensitivity) | **Justin** | Anshul | April 14 |
+| **Final report writing** (8 pages) | **Anshul** | Justin | April 20 |
+| **Video showcase** (4 min) | **Justin** | Anshul | April 20 |
+| **Code cleanup and documentation** | **Both** | — | April 22 |
 
 ### Parallel Workstreams
 
 The project has three natural parallelizable tracks:
 
-- **Track A (Data + Infrastructure):** Lily leads. Download datasets, set up HuggingFace pipelines, generate LLM responses, compute entailment labels. This is the foundation everything else depends on — must be done first.
-- **Track B (Methods Implementation):** [You] lead. Implement all three methods in a modular Python codebase. Each method is a class with `.calibrate()` and `.predict()` methods for clean comparison.
+- **Track A (Data + Infrastructure):** Anshul leads. Download datasets, set up HuggingFace pipelines, generate LLM responses, compute entailment labels. This is the foundation everything else depends on — must be done first.
+- **Track B (Methods Implementation):** Anshul leads. Implement all three methods in a modular Python codebase with shared utilities.
 - **Track C (Evaluation + Visualization):** Justin leads once methods are ready. Run all experiments, generate plots, perform sensitivity analysis.
 
 ---
@@ -235,34 +237,34 @@ The project has three natural parallelizable tracks:
 
 ### Phase 1: Foundation (March 3–13) — PROPOSAL
 
-- [ ] Finalize 3 methods and scope
-- [ ] Identify 4+ papers for literature review
-- [ ] Write 1–2 page proposal in LaTeX (arXiv template)
-- [ ] Submit proposal on Gradescope by March 13
+- [x] Finalize 3 methods and scope
+- [x] Identify 6 papers for literature review (SGen, Weighted CP, DS-CP, Conformal Factuality, Enhanced CP, Subpop CP)
+- [x] Write 1–2 page proposal in LaTeX (arXiv template)
+- [x] Submit proposal on Gradescope by March 13
 
 ### Phase 2: Infrastructure (March 14–22) — DATA + BASELINES
 
-- [ ] Download and preprocess NQ and TriviaQA
-- [ ] Set up LLaMA-3.2-3B inference pipeline (HuggingFace Transformers)
-- [ ] Generate and cache all LLM responses (5 samples per question)
-- [ ] Set up DeBERTa entailment pipeline
-- [ ] Compute all entailment labels and confidence scores
-- [ ] Mentor Meeting #1 (by March 20) — present proposal, get approval
-- [ ] Begin implementing Method 1 (Vanilla SGen)
+- [x] Download and preprocess NQ and TriviaQA
+- [x] Set up LLaMA-3.1-8B-Instruct inference pipeline (HuggingFace Transformers, chat template)
+- [ ] Generate and cache all LLM responses (K=5 sampled + greedy with log-probs) — **IN PROGRESS: NQ 2050/3610 done (job 6943094 running)**
+- [x] Set up DeBERTa-v2-xxlarge-mnli entailment pipeline
+- [ ] Compute all entailment labels and confidence scores — **BLOCKED: waiting on generation**
+- [x] Mentor Meeting #1 (by March 20) — present proposal, get approval
+- [x] Begin implementing Method 1 (Vanilla SGen)
 
 ### Phase 3: Core Implementation (March 23–April 5) — ALL METHODS
 
-- [ ] Complete Method 1 (Vanilla SGen) — verify it reproduces SGen results on NQ in-domain
-- [ ] Complete Method 2 (Conservative Threshold)
-- [ ] Implement embedding pipeline (sentence-transformers)
-- [ ] Implement domain classifier + importance weight estimation
-- [ ] Implement weighted conformal prediction
-- [ ] Complete Method 3 (DS-SGen)
+- [x] Complete Method 1 (Vanilla SGen-Semi) — code done, awaiting cached data to produce results
+- [x] Complete Method 2 (Conservative Threshold) — 3 options implemented (safety factor, reduced epsilon, delta budget)
+- [ ] Implement embedding pipeline (sentence-transformers) — Method 3
+- [ ] Implement domain classifier + importance weight estimation — Method 3
+- [ ] Implement weighted conformal prediction — Method 3
+- [ ] Complete Method 3 (DS-SGen) — **NOT STARTED**
 - [ ] Run preliminary experiments to verify DS-SGen works
 
 ### Phase 4: Check-in (April 6–8) — CHECKPOINT
 
-- [ ] Run Experiments 1–3 (even if preliminary)
+- [ ] Run Experiments 1–3 (even if preliminary) — **BLOCKED: baseline still generating**
 - [ ] Create skeleton plots/tables for remaining experiments
 - [ ] Write 4-page check-in report
 - [ ] Include: Problem/Dataset, 2+ reviewed papers, Methods description, preliminary results, current progress checklist, GitHub link
@@ -272,7 +274,6 @@ The project has three natural parallelizable tracks:
 ### Phase 5: Analysis and Polish (April 9–18) — FULL RESULTS
 
 - [ ] Run all experiments with final hyperparameters
-- [ ] Run Mistral-7B as second model (if compute allows)
 - [ ] Run Experiments 4–5 (weight analysis, sensitivity)
 - [ ] Generate all publication-quality figures
 - [ ] Compute confidence intervals (bootstrap over 100 splits)
@@ -291,57 +292,47 @@ The project has three natural parallelizable tracks:
 ## 7. Repository Structure
 
 ```
-ds-sgen/
-├── README.md                    # Project overview, setup instructions
-├── requirements.txt             # All dependencies
-├── data/
-│   ├── download.py              # Script to download NQ and TriviaQA
-│   ├── preprocess.py            # Splitting, formatting
-│   └── cache/                   # Cached LLM responses and scores
-├── src/
-│   ├── models/
-│   │   ├── llm_inference.py     # LLaMA/Mistral response generation
-│   │   └── entailment.py        # DeBERTa entailment scoring
-│   ├── methods/
-│   │   ├── base.py              # Abstract base class: .calibrate(), .predict()
-│   │   ├── vanilla_sgen.py      # Method 1: Standard SGen-Semi
-│   │   ├── conservative.py      # Method 2: Conservative threshold
-│   │   └── ds_sgen.py           # Method 3: Our proposed method
-│   ├── weights/
-│   │   ├── embedder.py          # Sentence-transformer embedding
-│   │   ├── classifier.py        # Domain classifier (logistic regression)
-│   │   └── importance.py        # Weight computation, clipping, normalization
-│   ├── conformal/
-│   │   ├── standard_cp.py       # Unweighted split conformal prediction
-│   │   └── weighted_cp.py       # Weighted conformal prediction
-│   └── evaluation/
-│       ├── metrics.py           # FDR-E, efficiency, coverage gap
-│       └── experiments.py       # Run all experiments, save results
-├── notebooks/
-│   ├── 01_data_exploration.py   # Data stats and examples
-│   ├── 02_main_results.py       # Experiments 1-3
-│   └── 03_analysis.py           # Experiments 4-5, visualizations
-├── figures/                     # All generated plots
-├── report/
-│   ├── main.tex                 # Final report (arXiv template)
-│   └── references.bib           # Bibliography
-└── scripts/
-    ├── run_all.sh               # Reproduce all results
-    └── generate_figures.py      # Create all plots from cached results
+ds-gen-10701/
+├── README.md                       # Project overview, setup, hyperparameters, runtime estimates
+├── environment.yml                 # Conda env export (Python 3.10, PyTorch 2.6, transformers 5.5)
+├── configs/
+│   └── default.yaml                # All hyperparameters and paths (single source of truth)
+├── ds_sgen/
+│   ├── __init__.py
+│   ├── utils.py                    # Config loading, seed, atomic JSON caching
+│   ├── data_loading.py             # NQ-Open + TriviaQA: download, normalize, cache
+│   ├── generate_responses.py       # LLaMA-3.1-8B-Instruct: greedy (fM1) + K=5 sampled
+│   ├── entailment_scoring.py       # DeBERTa-v2-xxlarge-mnli: correctness + self-consistency (fM2)
+│   ├── sgen_semi.py                # Method 1: SGen-Semi baseline (conformal + PAC-FDR)
+│   └── conservative.py             # Method 2: Conservative Threshold (3 options)
+├── run_baseline.py                 # Method 1 orchestrator (--stage data|generate|entailment|sgen|all)
+├── run_conservative.py             # Method 2 orchestrator (loads cached Stages 1-3)
+├── papers/                         # Detailed analysis notes for all 6 papers + project plans
+├── scripts/
+│   ├── check_gpu.sh                # SLURM GPU sanity check
+│   ├── run_gpu.sh                  # SLURM baseline pipeline (A6000, 48GB mem)
+│   └── run_conservative.sh         # SLURM Method 2 sweep
+├── logs/                           # SLURM .out/.err files (gitignored)
+├── cache/ -> /data/.../cache       # Symlink: cached JSON for each pipeline stage
+├── results/ -> /data/.../results   # Symlink: final experiment outputs
+├── report/                         # (to be created) LaTeX report
+└── figures/                        # (to be created) Generated plots
 ```
 
 ---
 
 ## 8. Risk Mitigation for the PoC
 
-| Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|
-| LLaMA inference too slow | Medium | High | Pre-generate on a cluster; use 3B not 8B; cache everything |
-| SGen is hard to reimplement | Medium | High | Start early; the paper has clear algorithms; use their released code as reference |
-| Importance weights are all ~1 (shift too mild) | Low | Medium | NQ→TriviaQA has meaningful distributional difference; verify with t-SNE early |
-| Weighted bounds are vacuous | Low | Medium | Weight clipping prevents this; check effective sample size early |
-| Compute budget exceeded | Medium | Medium | 3B model, cache everything, run sensitivity on subsets |
-| Entailment model fails on TriviaQA | Low | Medium | DeBERTa-MNLI is domain-general; test early |
+| Risk | Likelihood | Impact | Mitigation | Status |
+|---|---|---|---|---|
+| LLaMA inference too slow | Medium | High | Pre-generate on A6000 cluster; cache with incremental saves every 50 questions; SLURM preempt + requeue | **Active** — generation ~1.5 hrs running, ~57% NQ done |
+| SGen is hard to reimplement | Medium | High | Start early; the paper has clear algorithms; use their released code as reference | **Resolved** — Methods 1+2 fully implemented |
+| Importance weights are all ~1 (shift too mild) | Low | Medium | NQ→TriviaQA has meaningful distributional difference; verify with t-SNE early | Pending (Method 3) |
+| Weighted bounds are vacuous | Low | Medium | Weight clipping prevents this; check effective sample size early | Pending (Method 3) |
+| Compute budget exceeded | Medium | Medium | 8B model fits in 16GB VRAM; cache everything; SLURM preempt partition | **Managed** — using preempt queue |
+| Entailment model fails on TriviaQA | Low | Medium | DeBERTa-v2-xxlarge-mnli is domain-general; test early | Pending |
+| SLURM preemption loses work | Medium | Medium | Atomic JSON writes via tempfile; incremental caching; --requeue flag | **Mitigated** — implemented in utils.py |
+| Transformers API changes | Low | Medium | Pin versions; handle BatchEncoding returns from apply_chat_template | **Hit and fixed** — first run crashed on apply_chat_template return type |
 
 ---
 

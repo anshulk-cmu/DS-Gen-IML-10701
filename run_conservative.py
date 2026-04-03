@@ -46,8 +46,8 @@ def load_cached_stages(cfg: dict):
         "tqa_data": "Stage 1 (data loading)",
         "nq_generations": "Stage 2 (LLM generation)",
         "tqa_generations": "Stage 2 (LLM generation)",
-        "nq_entailments": "Stage 3 (entailment scoring)",
-        "tqa_entailments": "Stage 3 (entailment scoring)",
+        "nq_entailment": "Stage 3 (entailment scoring)",
+        "tqa_entailment": "Stage 3 (entailment scoring)",
     }
 
     caches = {}
@@ -98,8 +98,8 @@ def main():
     tqa_records = caches["tqa_data"]
     nq_gen = caches["nq_generations"]
     tqa_gen = caches["tqa_generations"]
-    nq_ent = caches["nq_entailments"]
-    tqa_ent = caches["tqa_entailments"]
+    nq_ent = caches["nq_entailment"]
+    tqa_ent = caches["tqa_entailment"]
 
     logger.info("  NQ:  %d records, %d generations, %d entailments",
                 len(nq_records), len(nq_gen), len(nq_ent))

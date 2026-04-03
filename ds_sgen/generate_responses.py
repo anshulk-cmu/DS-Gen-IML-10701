@@ -37,7 +37,7 @@ def load_generator(cfg: dict):
         model_path,
         cache_dir=cache_dir,
         device_map="auto",
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
     )
     model.eval()
     print(f"  Model loaded on {model.device}")
@@ -95,13 +95,16 @@ def generate_for_question(
     input_ids = _build_chat_input(tokenizer, question, system_prompt)
     input_ids = input_ids.to(model.device)
     input_len = input_ids.shape[1]
+    attention_mask = torch.ones_like(input_ids)
 
     # === Pass 1: Greedy decoding with log-prob extraction ===
     with torch.no_grad():
         greedy_out = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_new_tokens=max_new_tokens,
             do_sample=False,
+            pad_token_id=tokenizer.eos_token_id,
             output_logits=True,         # Raw logits (not processed by temperature/top_p)
             return_dict_in_generate=True,
         )
@@ -118,9 +121,11 @@ def generate_for_question(
     with torch.no_grad():
         sampled_out = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_new_tokens=max_new_tokens,
             do_sample=True,
             temperature=temperature,
+            pad_token_id=tokenizer.eos_token_id,
             num_return_sequences=num_samples,
         )
     for seq in sampled_out:

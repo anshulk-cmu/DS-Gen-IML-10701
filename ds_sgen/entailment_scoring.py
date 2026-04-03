@@ -38,7 +38,7 @@ def load_entailment_model(cfg: dict):
 
     print(f"  Loading entailment model: {model_name}...")
     model = AutoModelForSequenceClassification.from_pretrained(
-        model_name, cache_dir=cache_dir, torch_dtype=torch.float16
+        model_name, cache_dir=cache_dir, dtype=torch.float16
     )
     model.eval()
     if torch.cuda.is_available():

@@ -165,6 +165,8 @@ Questions --> LLaMA-3.1-8B-Instruct --> Greedy answer + K=5 sampled answers
 | `entailment_scoring.py` | SGen Sec. 2 (Entailment) + Sec. 3.2 (fM2) | Unidirectional NLI for correctness (greedy -> reference, argmax == ENTAILMENT) + Bidirectional NLI for self-consistency (all C(K,2) pairs, both directions must entail) |
 | `sgen_semi.py` | SGen Algorithm 2 + Theorem 1 | Conformal threshold from Z_E (Eq. 3), pseudo-labeling Z_U, Clopper-Pearson upper bound with Bonferroni correction (delta_adj = (delta - delta_p) / \|H\|), grid search over (tau1, tau2) |
 | `run_baseline.py` | SGen Sec. 4 (Experiments) | Staged orchestrator with 100 random splits, evaluates NQ-test (in-domain) vs. TriviaQA (shifted) |
+| `conservative.py` | Method 2: Conservative Threshold | Three naive domain-shift fixes: (A) safety factor on tau, (B) reduced epsilon, (C) delta budget allocation |
+| `run_conservative.py` | Method 2 orchestrator | Loads cached Stages 1-3, runs conservative parameter sweeps (CPU-only, no GPU needed) |
 | `configs/default.yaml` | SGen Table 1 + upstream code | All hyperparameters validated against paper and [ml-postech/selective-generation](https://github.com/ml-postech/selective-generation) |
 
 ### Scoring Functions — Paper-to-Code Mapping
@@ -248,12 +250,15 @@ ds-gen-10701/
 │   ├── data_loading.py             # NQ-Open + TriviaQA: download, normalize, cache
 │   ├── generate_responses.py       # LLaMA chat-template generation: greedy (fM1) + sampled (K=5)
 │   ├── entailment_scoring.py       # DeBERTa NLI: correctness + self-consistency (fM2)
-│   └── sgen_semi.py                # SGen-Semi: conformal, Clopper-Pearson, Bonferroni, grid search
+│   ├── sgen_semi.py                # SGen-Semi: conformal, Clopper-Pearson, Bonferroni, grid search
+│   └── conservative.py             # Method 2: Conservative Threshold (3 options for naive shift fix)
 ├── run_baseline.py                 # Staged orchestrator (--stage data|generate|entailment|sgen|all)
+├── run_conservative.py             # Method 2 orchestrator (loads cached Stages 1-3, CPU-only)
 ├── papers/                         # Detailed analysis notes for all 6 foundational papers + project plans
 ├── scripts/
 │   ├── check_gpu.sh                # SLURM GPU sanity check (preempt, A6000)
-│   └── run_gpu.sh                  # SLURM full pipeline (preempt, A6000, 48GB mem)
+│   ├── run_gpu.sh                  # SLURM full baseline pipeline (preempt, A6000, 48GB mem)
+│   └── run_conservative.sh         # SLURM Method 2: conservative threshold sweep
 ├── logs/                           # SLURM .out/.err files
 ├── cache/ -> /data/.../cache       # Symlink: cached JSON for each pipeline stage
 ├── results/ -> /data/.../results   # Symlink: final experiment outputs
@@ -278,7 +283,7 @@ ds-gen-10701/
 # Activate environment
 conda activate /data/user_data/anshulk/envs/dsgen
 
-# Full pipeline via SLURM (preempt partition, 1x A6000)
+# Full baseline pipeline via SLURM (preempt partition, 1x A6000)
 sbatch scripts/run_gpu.sh
 
 # Or run specific stages
@@ -287,6 +292,11 @@ python run_baseline.py --stage generate     # Data + LLM generation
 python run_baseline.py --stage entailment   # Data + generation + NLI scoring
 python run_baseline.py --stage sgen         # Full pipeline including SGen-Semi
 python run_baseline.py                      # Same as --stage all
+
+# Method 2: Conservative Threshold (requires cached Stages 1-3 from baseline)
+sbatch scripts/run_conservative.sh
+# Or run directly (CPU-only, completes in minutes):
+python run_conservative.py --config configs/default.yaml
 ```
 
 Every stage caches its output as JSON. If a SLURM job is preempted, resubmit -- it resumes from the last cached checkpoint (saves every 50 questions for generation, every 200 for entailment). Atomic writes via tempfile prevent corrupted caches.
@@ -325,13 +335,19 @@ All jobs use `--partition=preempt` with `--requeue` since we are at the 8-GPU re
 
 ---
 
-## Planned Extensions — DS-SGen (Methods 2 & 3)
+## Method 2: Conservative Threshold (Implemented)
 
-### Method 2: Conservative Threshold (Naive Shift Handling)
+Implemented in [conservative.py](ds_sgen/conservative.py) and run via [run_conservative.py](run_conservative.py). Three options for naive domain-shift handling, each swept over multiple parameter values:
 
-Same as vanilla SGen-Semi, but inflate the threshold by a safety margin. Options: multiply tau by 1.2-2.0, use epsilon/2, or allocate some delta budget to "potential shift" via Bonferroni. Expected result: restores validity but at severe efficiency cost (too many "I don't know" responses).
+- **Option A — Safety Factor on Thresholds:** After grid search finds (tau1, tau2), inflate: `tau1 += log(gamma)` (fM1 is log-scale), `tau2 *= gamma` (fM2 in [0,1]). Swept over gamma = {1.0, 1.2, 1.5, 2.0}.
+- **Option B — Reduced Epsilon:** Grid search uses `eps_eff = epsilon/k`, but validity is evaluated against the original epsilon for fair comparison. Swept over k = {1.0, 1.5, 2.0, 3.0, 4.0}.
+- **Option C — Delta Budget Allocation:** Reserve a fraction of delta for shift uncertainty: `delta_cp = delta - delta_p - delta_s`. Smaller delta_adj widens Clopper-Pearson bounds. Swept over frac = {0.0, 0.25, 0.50, 0.75}.
 
-### Method 3: DS-SGen with Importance Reweighting (Proposed)
+Expected result: restores TQA validity but at severe efficiency cost (too many "I don't know" responses). Requires cached Stages 1-3 from baseline; runs on CPU only in minutes.
+
+---
+
+## Planned Extension — Method 3: DS-SGen with Importance Reweighting (Proposed)
 
 The core contribution, combining SGen's PAC machinery with DS-CP's density ratio pipeline:
 
