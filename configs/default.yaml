@@ -1,26 +1,52 @@
-# Default configuration for ds-sgen experiments
-# Paths
-data_dir: /data/user_data/anshulk/dsgen
-cache_dir: /data/user_data/anshulk/dsgen/cache
-results_dir: /data/user_data/anshulk/dsgen/results
-model_cache_dir: /data/user_data/anshulk/dsgen/model_cache
+# DS-SGen Baseline Configuration
+# Validated against: Lee et al., "Selective Generation for Controllable LMs" (NeurIPS 2024)
 
-# SGen hyperparameters
-epsilon: 0.1
-delta: 0.05
+# === Paths ===
+paths:
+  model: "/data/user_data/anshulk/dsgen/model_cache/Llama-3.1-8B-Instruct"
+  entailment_model: "microsoft/deberta-v2-xxlarge-mnli"  # 1.5B params, label order: {0:CONTRADICTION, 1:NEUTRAL, 2:ENTAILMENT}
+  cache_dir: "/data/user_data/anshulk/dsgen/cache"
+  results_dir: "/data/user_data/anshulk/dsgen/results"
+  hf_cache: "/data/user_data/anshulk/dsgen/model_cache"
+
+# === Datasets ===
+data:
+  nq_dataset: "google-research-datasets/nq_open"   # NOT "nq_open" — full namespaced ID required
+  nq_split: "validation"                            # 3,610 questions; fields: question (str), answer (list[str])
+  tqa_dataset: "mandarjoshi/trivia_qa"              # NOT "trivia_qa" — full namespaced ID required
+  tqa_config: "unfiltered.nocontext"                # Skips 29GB doc download; same questions/answers as "unfiltered"
+  tqa_split: "validation"                           # 11,313 questions
+  tqa_sample_size: 3610                             # Downsample to match NQ size
+  sample_seed: 42
+
+# === LLM Generation ===
+generation:
+  system_prompt: "Answer the following question concisely in one sentence."  # Used with chat template
+  max_new_tokens: 100
+  num_samples: 5                   # K=5, matches SGen paper
+  temperature: 0.7
+  batch_size: 1                    # Start with 1, increase if VRAM allows
+  save_every: 50                   # Incremental cache save frequency
+
+# === Entailment Scoring ===
+entailment:
+  # DeBERTa-v2-xxlarge-mnli: id2label = {0:CONTRADICTION, 1:NEUTRAL, 2:ENTAILMENT}
+  # NOTE: cross-encoder/nli-deberta-v3-large has DIFFERENT order: {0:contradiction, 1:entailment, 2:neutral}
+  entailment_idx: 2                # Index of ENTAILMENT class in logits
+  batch_size: 64                   # ~6GB total VRAM at batch 64, safe on A6000 50GB
+  clustering_method: "bidirectional_argmax"   # For self-consistency: both NLI(i→j) and NLI(j→i) must be ENTAILMENT
+  correctness_method: "unidirectional_argmax" # For correctness: NLI(greedy→reference) must be ENTAILMENT
+
+# === SGen-Semi Algorithm ===
+sgen:
+  epsilon: 0.25                    # Target FDR-E level (paper's main experimental setting)
+  delta: 0.02                      # PAC confidence (1-delta = 0.98), matches paper experiments
+  delta_p: 1.0e-5                  # Pseudo-labeling failure prob; subtracted from delta before Bonferroni
+  cal_frac: 0.70                   # Fraction of NQ for calibration (rest = in-domain test)
+  zu_frac: 0.75                    # Fraction of calibration as unlabeled Z_U (rest = labeled Z_E)
+  epsilon_e: 0.10                  # Conformal pseudo-labeling error rate
+  n_splits: 100                    # Number of random calibration splits
+  n_grid: 50                       # Percentile-based grid points per score (|H| = n_grid^2 = 2500)
+
+# === Reproducibility ===
 seed: 42
-
-# Model settings (local path — downloaded from HF)
-generator_model: "/data/user_data/anshulk/dsgen/model_cache/Llama-3.1-8B-Instruct"
-entailment_model: "cross-encoder/nli-deberta-v3-large"
-
-# Generation settings
-max_new_tokens: 256
-temperature: 0.7
-top_p: 0.9
-num_responses: 20
-batch_size: 8
-
-# Hardware
-device: "cuda"
-num_gpus: 1

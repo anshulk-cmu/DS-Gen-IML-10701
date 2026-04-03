@@ -1,28 +1,106 @@
-"""Orchestrator for ds-sgen baseline experiments."""
+"""Orchestrator for DS-SGen baseline experiment.
+
+Pipeline stages (each is cached — safe to restart after preemption):
+  1. Load datasets (NQ-Open validation + TriviaQA unfiltered.nocontext)
+  2. Generate responses (greedy + K=5 sampled) with LLaMA-3.1-8B-Instruct
+  3. Entailment scoring (correctness + self-consistency) with DeBERTa-v2-xxlarge-mnli
+  4. SGen-Semi algorithm (100 random splits, PAC-FDR threshold selection)
+  5. Print summary
+"""
 
 import argparse
-import os
-from ds_sgen.utils import load_config, set_seed, ensure_dirs
-from ds_sgen.data_loading import load_questions, load_cached, save_cached
-from ds_sgen.generate_responses import load_generator, generate_responses
-from ds_sgen.entailment_scoring import load_entailment_model, compute_entailment_matrix
-from ds_sgen.sgen_semi import cluster_responses, compute_sgen_score
+import time
+
+from ds_sgen.utils import load_config, set_seed
+from ds_sgen.data_loading import load_and_cache_datasets
+from ds_sgen.generate_responses import generate_and_cache
+from ds_sgen.entailment_scoring import score_and_cache
+from ds_sgen.sgen_semi import run_experiment
+
+
+def print_summary(results: dict):
+    """Print a formatted summary of experiment results."""
+    print("\n" + "=" * 70)
+    print("DS-SGen BASELINE RESULTS")
+    print("=" * 70)
+
+    for domain, label in [("nq", "NQ (in-domain)"), ("tqa", "TriviaQA (shifted)")]:
+        r = results[domain]
+        print(f"\n  {label}:")
+        print(f"    Validity rate:   {r['validity_rate']:.2%}  (target: >= 98%)")
+        print(f"    Mean FDR-E:      {r['mean_fdr_e']:.4f} +/- {r['std_fdr_e']:.4f}  "
+              f"(target: <= {results['config']['epsilon']})")
+        print(f"    Mean efficiency: {r['mean_efficiency']:.4f} +/- {r['std_efficiency']:.4f}")
+
+    print("\n" + "=" * 70)
+
+    # Key hypothesis check
+    nq_val = results["nq"]["validity_rate"]
+    tqa_val = results["tqa"]["validity_rate"]
+    print(f"\n  NQ validity:  {nq_val:.2%}")
+    print(f"  TQA validity: {tqa_val:.2%}")
+    if tqa_val < nq_val - 0.05:
+        print("  >>> Domain shift detected: TQA validity dropped significantly")
+    else:
+        print("  >>> No significant domain shift in validity")
+    print()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run ds-sgen baseline")
+    parser = argparse.ArgumentParser(description="Run DS-SGen baseline experiment")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
+    parser.add_argument("--stage", type=str, default="all",
+                        choices=["all", "data", "generate", "entailment", "sgen"],
+                        help="Run a specific stage only (default: all)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    set_seed(cfg.get("seed", 42))
-    ensure_dirs(cfg["cache_dir"], cfg["results_dir"])
+    set_seed(cfg["seed"])
 
-    print("Configuration loaded.")
-    print(f"  Generator: {cfg['generator_model']}")
-    print(f"  Entailment: {cfg['entailment_model']}")
-    print(f"  Cache dir: {cfg['cache_dir']}")
-    print(f"  Results dir: {cfg['results_dir']}")
+    print(f"DS-SGen Baseline Experiment")
+    print(f"  Config: {args.config}")
+    print(f"  Stage: {args.stage}")
+    print(f"  Generator: {cfg['paths']['model']}")
+    print(f"  Entailment: {cfg['paths']['entailment_model']}")
+    print(f"  Seed: {cfg['seed']}")
+    print()
+
+    t0 = time.time()
+
+    # Stage 1: Load datasets
+    nq_records, tqa_records = load_and_cache_datasets(cfg)
+    print(f"  NQ: {len(nq_records)} questions, TQA: {len(tqa_records)} questions\n")
+    if args.stage == "data":
+        return
+
+    # Stage 2: Generate responses
+    print("Stage 2: Generating responses")
+    nq_gen = generate_and_cache(cfg, "nq", nq_records)
+    tqa_gen = generate_and_cache(cfg, "tqa", tqa_records)
+    print()
+    if args.stage == "generate":
+        return
+
+    # Stage 3: Entailment scoring
+    print("Stage 3: Entailment scoring")
+    nq_ent = score_and_cache(cfg, "nq", nq_records, nq_gen)
+    tqa_ent = score_and_cache(cfg, "tqa", tqa_records, tqa_gen)
+    print()
+    if args.stage == "entailment":
+        return
+
+    # Stage 4: SGen-Semi algorithm
+    results = run_experiment(
+        cfg,
+        nq_records, nq_gen, nq_ent,
+        tqa_records, tqa_gen, tqa_ent,
+    )
+
+    elapsed = time.time() - t0
+    print(f"\n  Total time: {elapsed/60:.1f} minutes")
+
+    # Stage 5: Summary
+    print_summary(results)
 
 
 if __name__ == "__main__":

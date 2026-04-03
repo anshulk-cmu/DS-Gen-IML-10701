@@ -5,7 +5,7 @@
 #SBATCH --partition=preempt
 #SBATCH --gres=gpu:A6000:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
+#SBATCH --mem=48G
 #SBATCH --time=04:00:00
 #SBATCH --requeue
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -27,6 +27,10 @@ echo "GPUs   : $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)
 echo ""
 
 cd /home/anshulk/ds-gen-10701
+
+# Set HF cache to data dir (avoid filling home quota)
+export HF_HOME=/data/user_data/anshulk/dsgen/model_cache
+export TRANSFORMERS_CACHE=/data/user_data/anshulk/dsgen/model_cache
 
 python run_baseline.py --config configs/default.yaml
 
