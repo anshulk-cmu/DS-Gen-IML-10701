@@ -1,0 +1,26 @@
+# Default configuration for ds-sgen experiments
+# Paths
+data_dir: /data/user_data/anshulk/dsgen
+cache_dir: /data/user_data/anshulk/dsgen/cache
+results_dir: /data/user_data/anshulk/dsgen/results
+model_cache_dir: /data/user_data/anshulk/dsgen/model_cache
+
+# SGen hyperparameters
+epsilon: 0.1
+delta: 0.05
+seed: 42
+
+# Model settings (local path — downloaded from HF)
+generator_model: "/data/user_data/anshulk/dsgen/model_cache/Llama-3.1-8B-Instruct"
+entailment_model: "cross-encoder/nli-deberta-v3-large"
+
+# Generation settings
+max_new_tokens: 256
+temperature: 0.7
+top_p: 0.9
+num_responses: 20
+batch_size: 8
+
+# Hardware
+device: "cuda"
+num_gpus: 1

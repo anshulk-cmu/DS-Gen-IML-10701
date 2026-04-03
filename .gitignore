@@ -1,0 +1,35 @@
+# Heavy files (symlinked to /data)
+cache/
+results/
+
+# Model weights
+*.pt
+*.bin
+*.safetensors
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Conda
+envs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (keep dir, ignore contents)
+logs/*.log
+logs/*.out
+logs/*.err
+
+# Slurm output
+slurm-*.out
