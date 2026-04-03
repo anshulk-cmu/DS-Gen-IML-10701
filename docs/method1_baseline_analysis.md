@@ -5,7 +5,10 @@
 
 This document records every decision, every number, every piece of math, and every
 result from the Method 1 baseline implementation. It is the truth document for the
-SGen-Semi baseline. All numbers are validated against actual cached data and log files.
+SGen-Semi baseline. Numbers marked as "actual" or "from cache" are validated against
+cached data and log files. Numbers in the "Expected Results" and "Worked Example"
+sections are predictions or illustrative — not measured outcomes. The pipeline has
+not yet completed; statistics from partial caches may shift when the full run finishes.
 
 ---
 
@@ -400,7 +403,7 @@ in the current pipeline.
 | CUDA version | 12.4 |
 | PyTorch version | 2.6.0+cu124 |
 | Transformers version | 5.5.0 |
-| Loading method | `AutoModelForCausalLM.from_pretrained(device_map="auto", dtype=torch.float16)` |
+| Loading method | `AutoModelForCausalLM.from_pretrained(device_map="auto", dtype=torch.float16)` (note: `dtype=` is the transformers 5.x parameter name; older versions used `torch_dtype=`) |
 | Local path | `/data/user_data/anshulk/dsgen/model_cache/Llama-3.1-8B-Instruct` |
 | Load time | ~14 seconds (from local disk) |
 
@@ -631,21 +634,23 @@ step).
 
 ### Preliminary statistics from cached data
 
-From the first 2,450 NQ questions (partial cache):
+From the first 2,900 NQ questions (partial cache, ~80% complete as of April 3).
+These statistics will shift slightly when all 3,610 questions are generated.
 
 | Statistic | Value |
 |-----------|-------|
-| Mean of fM1 | -0.2274 |
-| Std of fM1 | 0.1393 |
+| Count | 2,900 questions (of 3,610) |
+| Mean of fM1 | -0.2253 |
+| Std of fM1 | 0.1382 |
 | Min (least confident) | -0.8869 |
 | Max (most confident) | -0.0005 |
-| Median | -0.1987 |
-| Mean token count per answer | 37.4 tokens |
+| Median | -0.1971 |
+| Mean token count per answer | 37.2 tokens |
 | Min token count | 4 tokens |
 | Max token count | 100 tokens (hit max_new_tokens limit) |
 
-The distribution is right-skewed (median < mean in absolute value): most answers have
-moderate confidence, with a long tail of low-confidence answers.
+The distribution is right-skewed (median closer to 0 than the mean): most answers
+have moderate confidence, with a long tail of low-confidence answers.
 
 ### Why mean, not sum
 
@@ -1563,7 +1568,7 @@ Key properties:
 /data/user_data/anshulk/dsgen/cache/
 ├── nq_data.json              (792 KB)     Stage 1: 3,610 NQ records
 ├── tqa_data.json             (2.0 MB)     Stage 1: 3,610 TQA records
-├── nq_generations.json       (~4.5 MB)    Stage 2: NQ generation results (partial: 2,450/3,610)
+├── nq_generations.json       (~6.3 MB)    Stage 2: NQ generation results (partial: 2,900/3,610)
 ├── tqa_generations.json      (not yet)    Stage 2: TQA generation results
 ├── nq_entailment.json        (not yet)    Stage 3: NQ entailment scores
 └── tqa_entailment.json       (not yet)    Stage 3: TQA entailment scores
@@ -1645,17 +1650,18 @@ conservative parameter sweeps. No GPU needed. Completes in minutes.
 | Stage | Time | VRAM | Bottleneck |
 |-------|------|------|-----------|
 | Data loading | ~2 min | CPU only | TriviaQA download (633 MB) — cached after first run |
-| NQ generation (3,610 questions) | ~45-60 min | ~16 GB | Autoregressive decoding, batch_size=1 |
-| TQA generation (3,610 questions) | ~45-60 min | ~16 GB | Same as NQ |
+| NQ generation (3,610 questions) | ~2-2.5 hours | ~16 GB | Autoregressive decoding, batch_size=1, ~2.5 sec/question |
+| TQA generation (3,610 questions) | ~2-2.5 hours | ~16 GB | Same as NQ |
 | NQ entailment scoring | ~3-5 min | ~6 GB | Batched NLI, batch_size=64 |
 | TQA entailment scoring | ~3-5 min | ~6 GB | Same as NQ |
 | SGen-Semi (100 splits) | ~30 sec | CPU only | Numpy grid search |
-| **Total** | **~2 hours** | | Dominated by LLM generation |
+| **Total** | **~5 hours** | | Dominated by LLM generation |
 
 Generation is the bottleneck because it uses batch_size=1 (each question is processed
-individually due to variable input lengths from the chat template). Batching generation
-with padding is possible but adds complexity and potential quality degradation from
-padding effects. The 1-2 hour total is acceptable for a single A6000 run.
+individually due to variable input lengths from the chat template). Based on observed
+throughput (~2.5 sec/question including greedy + 5 sampled), 7,220 total questions
+(NQ + TQA) takes approximately 5 hours. Batching with padding could reduce this but
+adds complexity. The SLURM job requests 48 hours to accommodate preemption and restarts.
 
 ---
 
@@ -1667,7 +1673,7 @@ padding effects. The 1-2 hour total is acceptable for a single A6000 run.
 |-----------|--------|---------|
 | NQ data cache | Complete | 3,610 records, 792 KB |
 | TQA data cache | Complete | 3,610 records, 2.0 MB |
-| NQ generation cache | **In progress** | 2,450/3,610 (67.9%), job 6943094 running on babel-v9-24 |
+| NQ generation cache | **In progress** | 2,900/3,610 (~80%), job 6943094 running on babel-v9-24 |
 | TQA generation cache | Not started | Waiting on NQ generation |
 | NQ entailment cache | Not started | Waiting on generation |
 | TQA entailment cache | Not started | Waiting on generation |

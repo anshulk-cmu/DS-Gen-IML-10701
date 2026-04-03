@@ -1,6 +1,6 @@
 """SGen-Semi algorithm: conformal pseudo-labeling + PAC-FDR threshold selection.
 
-Implements Algorithm 1 from Lee et al., "Selective Generation for Controllable LMs" (NeurIPS 2024).
+Implements Algorithm 2 (SGen-Semi) from Lee et al., "Selective Generation for Controllable LMs" (NeurIPS 2024).
 
 Key formulas:
   - Conformal threshold: tau_CP = sorted_scores[ceil((n+1)(1-epsilon_e)) - 1]
