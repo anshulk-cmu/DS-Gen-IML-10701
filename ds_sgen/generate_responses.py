@@ -50,12 +50,15 @@ def _build_chat_input(tokenizer, question: str, system_prompt: str):
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": question},
     ]
-    input_ids = tokenizer.apply_chat_template(
+    result = tokenizer.apply_chat_template(
         messages,
         add_generation_prompt=True,
         return_tensors="pt",
     )
-    return input_ids
+    # transformers >=5.x returns BatchEncoding; extract the tensor
+    if hasattr(result, "input_ids"):
+        return result.input_ids
+    return result
 
 
 def _extract_logprobs_from_scores(scores, generated_ids):
