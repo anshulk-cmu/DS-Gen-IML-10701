@@ -129,9 +129,14 @@ Enhanced CP (NeurIPS 2024)             Subpop CP (arXiv 2025)
 
 ---
 
-## Current Implementation — Vanilla SGen-Semi Baseline
+## Current Implementation — Three Methods
 
-The current codebase implements the SGen-Semi baseline (Method 1: no shift handling). This establishes the motivating failure: the PAC guarantee holds in-domain but breaks under domain shift.
+The codebase implements three methods for selective generation under domain shift:
+
+- **Method 1 (Vanilla SGen-Semi):** Baseline with no shift handling. Demonstrates the PAC guarantee breaking under domain shift.
+- **Method 2 (Conservative Threshold):** Three naive domain-shift fixes (safety factor, reduced epsilon, delta budget). Shows that ad-hoc conservatism cannot restore guarantees without severe efficiency loss.
+- **Method 3 (DS-SGen with Importance Reweighting):** The core contribution. Uses embedding-based density ratio estimation to reweight calibration samples, restoring PAC guarantees under covariate shift.
+- **Epsilon Sweep:** Runs all three methods at epsilon = {0.25, 0.30, 0.35, 0.40} to produce the headline figure — validity vs. epsilon for each method.
 
 ### Pipeline
 
@@ -167,6 +172,9 @@ Questions --> LLaMA-3.1-8B-Instruct --> Greedy answer + K=5 sampled answers
 | `run_baseline.py` | SGen Sec. 4 (Experiments) | Staged orchestrator with 100 random splits, evaluates NQ-test (in-domain) vs. TriviaQA (shifted) |
 | `conservative.py` | Method 2: Conservative Threshold | Three naive domain-shift fixes: (A) safety factor on tau, (B) reduced epsilon, (C) delta budget allocation |
 | `run_conservative.py` | Method 2 orchestrator | Loads cached Stages 1-3, runs conservative parameter sweeps (CPU-only, no GPU needed) |
+| `importance_weighted.py` | DS-CP + Weighted CP | Embedding, domain classifier, density ratio weights, weighted conformal threshold, weighted Clopper-Pearson bounds |
+| `run_importance_weighted.py` | Method 3 orchestrator | Loads cached Stages 1-3, computes embeddings (GPU), runs weighted SGen-Semi |
+| `run_epsilon_sweep.py` | All methods comparison | Runs Methods 1-3 at epsilon = {0.25, 0.30, 0.35, 0.40}, produces headline figure data |
 | `configs/default.yaml` | SGen Table 1 + upstream code | All hyperparameters validated against paper and [ml-postech/selective-generation](https://github.com/ml-postech/selective-generation) |
 
 ### Scoring Functions — Paper-to-Code Mapping
@@ -231,12 +239,17 @@ All parameters validated against the SGen paper and upstream code at [ml-postech
 | epsilon (FDR-E target) | 0.25 | Paper's main experiments | Upper bound on P(wrong \| answered) |
 | delta (PAC confidence) | 0.02 | Paper experiments (1-delta = 98%) | P{FDR-E <= epsilon} >= 1-delta |
 | delta_p (pseudo-label failure prob) | 1e-5 | Paper default | Subtracted from delta before Bonferroni |
-| epsilon_e (conformal error rate) | 0.10 | Paper default | Controls pseudo-label quality via FER |
+| epsilon_e (conformal error rate) | 0.05 | Stricter than paper (0.10) for better pseudo-labels | Controls pseudo-label quality via FER |
 | K (sampled responses) | 5 | Paper default; Kuhn et al. confirm diminishing returns past 5 | Number of samples for fM2 self-consistency |
-| cal_frac (calibration fraction) | 0.70 | 70% calibration, 30% in-domain test | NQ data split ratio |
+| cal_frac (calibration fraction) | 0.70 | 70% calibration, 30% in-domain test | Data split ratio |
 | zu_frac (unlabeled fraction) | 0.75 | 75% Z_U, 25% Z_E within calibration | Semi-supervised split ratio |
 | n_splits (random splits) | 100 | Paper standard | Repeated experiments for validity estimation |
-| n_grid (threshold grid points) | 50 | Percentile-based; \|H\| = 50^2 = 2,500 | Bonferroni correction divides delta by \|H\| |
+| n_grid (threshold grid points) | 20 | Percentile-based; \|H\|=20 for fm1_only mode | Bonferroni correction divides delta by \|H\| |
+| cal_dataset | "tqa" | Higher correctness (61.2% vs 40.2%) | Calibrate on TQA, test on NQ |
+| selection_mode | "fm1_only" | 1D threshold; \|H\|=20 not 400 | Less Bonferroni penalty |
+| embedding_model | all-MiniLM-L6-v2 | DS-CP (Lin et al., 2025) | 384-dim sentence embeddings for density ratio |
+| classifier_C | 1.0 | Default regularization | Logistic regression for domain classification |
+| weight_clip_percentile | 95 | Standard practice | Clip extreme weights to prevent vacuous bounds |
 
 ## Project Structure
 
@@ -251,16 +264,24 @@ ds-gen-10701/
 │   ├── generate_responses.py       # LLaMA chat-template generation: greedy (fM1) + sampled (K=5)
 │   ├── entailment_scoring.py       # DeBERTa NLI: correctness + self-consistency (fM2)
 │   ├── sgen_semi.py                # SGen-Semi: conformal, Clopper-Pearson, Bonferroni, grid search
-│   └── conservative.py             # Method 2: Conservative Threshold (3 options for naive shift fix)
+│   ├── conservative.py             # Method 2: Conservative Threshold (3 options for naive shift fix)
+│   └── importance_weighted.py      # Method 3: DS-SGen (embeddings, domain classifier, weighted CP)
 ├── run_baseline.py                 # Staged orchestrator (--stage data|generate|entailment|sgen|all)
 ├── run_conservative.py             # Method 2 orchestrator (loads cached Stages 1-3, CPU-only)
-├── plot_results.py                 # Visualization: all plots for paper (--stage generation|entailment|baseline|conservative|all)
+├── run_importance_weighted.py      # Method 3 orchestrator (loads cached Stages 1-3, GPU for embeddings)
+├── run_epsilon_sweep.py            # Epsilon sweep: all 3 methods at eps={0.25, 0.30, 0.35, 0.40}
+├── plot_results.py                 # Visualization: all plots for paper (--stage generation|...|method3|epsilon_sweep)
 ├── plots/                          # Generated PNG plots (300 DPI)
 ├── papers/                         # Detailed analysis notes for all 6 foundational papers + project plans
+├── docs/                           # Per-method analysis documents
+│   ├── method1_baseline_analysis.md
+│   ├── method2_conservative_analysis.md
+│   └── method3_importance_weighted_analysis.md
 ├── scripts/
 │   ├── check_gpu.sh                # SLURM GPU sanity check (preempt, A6000)
 │   ├── run_gpu.sh                  # SLURM full baseline pipeline (preempt, A6000, 48GB mem)
-│   └── run_conservative.sh         # SLURM Method 2: conservative threshold sweep
+│   ├── run_conservative.sh         # SLURM Method 2: conservative threshold sweep
+│   └── run_method3.sh              # SLURM Method 3 + epsilon sweep (GPU for embeddings)
 ├── logs/                           # SLURM .out/.err files
 ├── cache/ -> /data/.../cache       # Symlink: cached JSON for each pipeline stage
 ├── results/ -> /data/.../results   # Symlink: final experiment outputs
@@ -299,9 +320,15 @@ python run_baseline.py                      # Same as --stage all
 sbatch scripts/run_conservative.sh
 # Or run directly (CPU-only, completes in minutes):
 python run_conservative.py --config configs/default.yaml
+
+# Method 3: DS-SGen + Epsilon Sweep (requires cached Stages 1-3 + GPU for embeddings)
+sbatch scripts/run_method3.sh
+# Or run steps individually:
+python run_importance_weighted.py --config configs/default.yaml   # Method 3 standalone
+python run_epsilon_sweep.py --config configs/default.yaml         # All methods at 4 epsilon values
 ```
 
-Every stage caches its output as JSON. If a SLURM job is preempted, resubmit -- it resumes from the last cached checkpoint (saves every 50 questions for generation, every 200 for entailment). Atomic writes via tempfile prevent corrupted caches.
+Every stage caches its output as JSON. If a SLURM job is preempted, resubmit -- it resumes from the last cached checkpoint (saves every 50 questions for generation, every 200 for entailment). Embeddings are cached to `.npy` files after first compute.
 
 ```bash
 # Generate plots (runs incrementally — only plots data that exists)
@@ -310,6 +337,8 @@ python plot_results.py --stage generation       # fM1 histograms, answer length,
 python plot_results.py --stage entailment       # entailment scores, fM2, correctness, scatter
 python plot_results.py --stage baseline         # FDR-E distribution, efficiency, validity bars
 python plot_results.py --stage conservative     # Pareto frontier, summary table
+python plot_results.py --stage method3          # Weight analysis, FDR-E comparison
+python plot_results.py --stage epsilon_sweep    # Validity vs epsilon (headline figure)
 ```
 
 Plots are saved to `plots/` as 300 DPI PNGs.
@@ -322,30 +351,56 @@ Plots are saved to `plots/` as 300 DPI PNGs.
 | LLM generation (2 x 3,610 questions) | ~48 hours | ~16GB | Greedy + K=5 sampled per question; ~24h per dataset |
 | Entailment scoring (~185K NLI calls) | ~3-5 min | ~6GB | Batch size 64 |
 | SGen-Semi (100 splits) | ~30 sec | CPU | Pure numpy/scipy |
-| **Total** | **~48-50 hours** | | |
+| Method 2: Conservative (100 splits x 4 options) | ~2 min | CPU | CPU-only, no GPU |
+| Method 3: Embedding (2 x 3,610 questions) | ~2 min | ~1GB | all-MiniLM-L6-v2, cached to .npy |
+| Method 3: Domain classifier + weights | ~5 sec | CPU | Logistic regression + 5-fold CV |
+| Method 3: Weighted SGen-Semi (100 splits) | ~1 min | CPU | Weighted conformal + weighted CP bounds |
+| Epsilon sweep (3 methods x 4 epsilons x 100 splits) | ~5 min | CPU | Reuses pre-computed weights |
+| **Total (first run)** | **~48-50 hours** | | Dominated by LLM generation |
+| **Total (from cache, Methods 2-3 + sweep)** | **~10 min** | | With cached Stages 1-3 + embeddings |
 
 ## Pipeline Status (Updated 2026-04-04)
-
-Current SLURM job: `6951565` on `babel-w9-20` (preempt, 7-day wall time)
 
 | Stage | NQ (3,610 Qs) | TQA (3,610 Qs) | Status |
 |-------|---------------|----------------|--------|
 | 1. Data loading | 3,610 cached | 3,610 cached | **Complete** |
-| 2. LLM generation | 3,610 cached | 2,550/3,610 (71%) | **In progress** |
-| 3. Entailment scoring | Not started | Not started | Blocked on Stage 2 |
-| 4. SGen-Semi | Not started | Not started | Blocked on Stage 3 |
+| 2. LLM generation | 3,610 cached | 3,610 cached | **Complete** |
+| 3. Entailment scoring | 3,610 cached | 3,610 cached | **Complete** |
+| 4. Method 1: SGen-Semi (100 splits) | -- | -- | **Complete** (job 6952802) |
+| 5. Method 2: Conservative (100 splits x 4 options) | -- | -- | **Complete** (job 6952802) |
+| 6. Method 3: DS-SGen (importance reweighting) | -- | -- | **Code complete, awaiting run** |
+| 7. Epsilon sweep (3 methods x 4 epsilons) | -- | -- | **Code complete, awaiting run** |
 
-### Early Results — Generation Confidence (fM1) by Domain
+### Results from Clean Run (SLURM Job 6952802)
 
-| Metric | NQ (in-domain) | TQA (shifted) |
-|--------|----------------|---------------|
-| Mean fM1 (log-prob) | -0.2261 +/- 0.1371 | -0.1814 +/- 0.1389 |
-| Median fM1 | -0.1985 | -0.1445 |
-| Range | [-0.887, -0.001] | [-0.896, -0.000] |
-| Mean answer length | 156 chars | 113 chars |
-| Samples per question | K=5 | K=5 |
+**Method 1 (Vanilla SGen-Semi):** PAC guarantee breaks under domain shift.
 
-**Observation:** TQA answers are *more* confident (higher fM1) than NQ, and shorter. This is interesting — higher generation confidence does not necessarily mean higher correctness under domain shift. Whether this confidence is well-calibrated will be tested in Stage 3 (entailment) and Stage 4 (SGen-Semi validity rate).
+| Metric | TQA (in-domain) | NQ (shifted) |
+|--------|-----------------|--------------|
+| Validity rate | 100% | 29% |
+| Mean FDR-E | 0.0770 | 0.3020 |
+| Mean efficiency | 27.6% | 16.3% |
+
+**Method 2 (Conservative Threshold):** Best result is Option C (delta budget frac=0.75).
+
+| Metric | TQA (in-domain) | NQ (shifted) |
+|--------|-----------------|--------------|
+| Validity rate | 100% | 41% |
+| Mean FDR-E | 0.0458 | 0.2722 |
+| Mean efficiency | 12.1% | 12.1% |
+
+Options A (safety factor) and B (reduced epsilon) collapse to 0% efficiency at any non-trivial conservatism level.
+
+### Key Diagnostic Data
+
+| Metric | TQA (calibration) | NQ (shifted test) |
+|--------|-------------------|-------------------|
+| Overall correctness | 61.2% | 40.2% |
+| Mean fM1 (log-prob) | -0.181 | -0.226 |
+| Corr(fM1, correct) | 0.448 | 0.358 |
+| Top 5% by fM1: accuracy | ~85% | 69.4% |
+
+**Critical finding:** NQ top 5% by fM1 is only 69.4% correct. eps=0.25 requires 75%+. This means eps=0.25 is *mathematically infeasible* on NQ regardless of algorithm — motivating the epsilon sweep.
 
 ### Job History
 
@@ -353,8 +408,9 @@ Current SLURM job: `6951565` on `babel-w9-20` (preempt, 7-day wall time)
 |--------|-----------|----------|---------|
 | 6942461 | preempt | 5 sec | GPU check passed (A6000, CUDA 12.4) |
 | 6943087 | preempt | ~2 min | Failed (config/import issues, fixed) |
-| 6943094 | preempt | ~4 hours | NQ complete, TQA 2350/3610 — **killed: 48h time limit** |
-| 6951565 | preempt | running | Resumed from TQA 2350, 7-day time limit |
+| 6943094 | preempt | ~4 hours | NQ complete, TQA 2350/3610 — killed: 48h time limit |
+| 6951565 | preempt | ~44 hours | Completed: TQA generation + all entailment |
+| 6952802 | preempt | ~5 min | Clean run: Methods 1 + 2 (100 splits each) |
 
 ## Environment
 
@@ -392,19 +448,59 @@ Expected result: restores TQA validity but at severe efficiency cost (too many "
 
 ---
 
-## Planned Extension — Method 3: DS-SGen with Importance Reweighting (Proposed)
+## Method 3: DS-SGen with Importance Reweighting (Implemented)
 
-The core contribution, combining SGen's PAC machinery with DS-CP's density ratio pipeline:
+The core contribution, combining SGen's PAC machinery with DS-CP's density ratio pipeline. Implemented in `ds_sgen/importance_weighted.py`.
 
-1. **Embed** all NQ and TriviaQA prompts using sentence-transformers (all-MiniLM-L6-v2, 384-dim)
-2. **Train domain classifier** (logistic regression on embeddings) to distinguish NQ from TriviaQA
-3. **Compute importance weights** w(x_i) = P(TQA|x_i) / (1 - P(TQA|x_i)), clip at 95th percentile
-4. **Weighted conformal pseudo-labeling** — replace uniform empirical distribution with weighted distribution
-5. **Weighted binomial bounds** — use effective sample size n_eff = (sum w)^2 / (sum w^2) in Clopper-Pearson
-6. **Domain-aware selection** — add cosine similarity to NQ centroid as third signal alongside fM1 and fM2
-7. **Threshold optimization** — maximize efficiency subject to weighted PAC constraint
+### Pipeline
 
-**Theoretical basis (informal):** Under covariate shift, SGen's FDR-E decomposition (Lemma 1) is purely algebraic and distribution-agnostic. Each component (FER, FNER, NER) can be re-bounded using importance-weighted Hoeffding-type bounds instead of uniform binomial bounds. The union bound yields: P{FDR-E <= epsilon} >= 1 - delta - O(Delta_w), where Delta_w is the weight estimation error.
+```
+TQA questions  ──┐                    ┌──  NQ questions
+                  │                    │
+              all-MiniLM-L6-v2 (384-dim sentence embeddings)
+                  │                    │
+                  └─── Logistic Regression ───┘
+                       (domain classifier: TQA=0, NQ=1)
+                              │
+                    P(NQ|x) for each TQA sample
+                              │
+                    w(x) = P(NQ|x) / (1 - P(NQ|x))
+                    (density ratio = importance weight)
+                              │
+                    Clip at 95th percentile, normalize to sum=n
+                              │
+            ┌─────────────────┴─────────────────┐
+            │                                   │
+  Weighted conformal threshold          Weighted Clopper-Pearson
+  (pseudo-labeling on Z_E)              (PAC bound with n_eff)
+            │                                   │
+            └─────────────────┬─────────────────┘
+                              │
+                    SGen-Semi grid search
+                    (same as Method 1, but with weighted bounds)
+                              │
+                    Select: answer if fM1 >= tau1
+                    Abstain: otherwise
+```
+
+### Key Modifications vs. Method 1
+
+1. **Weighted conformal threshold:** `_weighted_conformal_threshold()` computes the epsilon_e-th weighted quantile of correct entailment scores on Z_E, instead of the uniform quantile.
+
+2. **Weighted Clopper-Pearson bound:** `_weighted_clopper_pearson_upper()` scales the observed failure rate to the effective sample size n_eff = (sum w)^2 / (sum w^2), giving wider bounds when weights are non-uniform. Guard: returns 1.0 (vacuous) if n_eff < 5.
+
+3. **Weight indexing through splits:** When permuting calibration data, weights are permuted with the same index array so each data point retains its importance weight through all splits.
+
+### Epsilon Sweep
+
+Since eps=0.25 is mathematically infeasible on NQ (top 5% by fM1 = 69.4% correct, need 75%+), the epsilon sweep runs all three methods at eps = {0.25, 0.30, 0.35, 0.40}. The headline figure shows where each method's validity crosses the 98% PAC target.
+
+**Expected results:**
+- Method 1: NQ validity stays below 50% across all epsilons
+- Method 2: Slight improvement at higher epsilons but with severe efficiency loss
+- Method 3: Crosses 98% validity around eps=0.35, demonstrating that importance reweighting fixes the covariate shift component
+
+**Theoretical basis (informal):** Under covariate shift, SGen's FDR-E decomposition (Lemma 1) is purely algebraic and distribution-agnostic. Each component (FER, FNER, NER) can be re-bounded using importance-weighted Hoeffding-type bounds instead of uniform binomial bounds. The effective sample size n_eff accounts for information loss from non-uniform weighting. See WR-CP (Xu et al., ICLR 2025) for the formal decomposition into covariate + concept shift terms.
 
 ## References
 

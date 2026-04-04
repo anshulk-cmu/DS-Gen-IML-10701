@@ -354,6 +354,224 @@ def plot_method_comparison_table(baseline_results, cons_results):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# STAGE: Method 3 — Importance Weighted
+# ═══════════════════════════════════════════════════════════════════════════
+
+M3_COLOR = "#4CAF50"  # Green for Method 3
+
+
+def plot_method3_fdr_distribution(baseline, iw_results):
+    """Overlaid FDR-E histograms: Method 1 vs Method 3 on shifted domain."""
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bins = np.linspace(0, 0.8, 40)
+
+    if baseline and "per_split" in baseline:
+        m1_fdr = [r["shifted_test"]["fdr_e"] for r in baseline["per_split"]]
+        ax.hist(m1_fdr, bins=bins, alpha=0.5, label=f"M1: Vanilla SGen (n={len(m1_fdr)})",
+                color=NQ_COLOR, density=True)
+
+    m3_fdr = [r["shifted_test"]["fdr_e"] for r in iw_results["per_split"]]
+    ax.hist(m3_fdr, bins=bins, alpha=0.5, label=f"M3: DS-SGen (n={len(m3_fdr)})",
+            color=M3_COLOR, density=True)
+
+    eps = iw_results["config"]["sgen"]["epsilon"]
+    ax.axvline(eps, color="red", linestyle="--", linewidth=2, label=f"epsilon = {eps}")
+    ax.set_xlabel("FDR-E (Shifted Domain)")
+    ax.set_ylabel("Density")
+    ax.set_title("FDR-E Distribution: Method 1 vs Method 3 (Shifted Domain)")
+    ax.legend()
+    _save(fig, "method3_fdr_distribution")
+
+
+def plot_weight_analysis(iw_results):
+    """2x2 weight analysis: diagnostics, n_eff, split outcomes, efficiency."""
+    diag = iw_results["diagnostics"]
+    ws = diag["weight_stats"]
+    per_split = iw_results["per_split"]
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+    # Top-left: weight stats text
+    ax = axes[0, 0]
+    stats_text = (
+        f"Weight Statistics\n"
+        f"n = {ws['n']}\n"
+        f"n_eff = {ws['n_eff']:.1f} ({100*ws['n_eff_ratio']:.1f}%)\n"
+        f"clip pctl = {ws['clip_percentile']}%\n"
+        f"clip value = {ws['clip_value']:.3f}\n"
+        f"min = {ws['weight_min']:.3f}\n"
+        f"median = {ws['weight_median']:.3f}\n"
+        f"max = {ws['weight_max']:.3f}\n"
+        f"std = {ws['weight_std']:.3f}\n"
+        f"raw max = {ws['raw_weight_max']:.3f}\n"
+        f"\nClassifier CV acc = {diag['classifier_cv_accuracy']:.3f}"
+    )
+    ax.text(0.1, 0.5, stats_text, transform=ax.transAxes, fontsize=11,
+            verticalalignment='center', fontfamily='monospace',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    ax.set_title("Weight Diagnostics")
+
+    # Top-right: n_eff across splits
+    ax = axes[0, 1]
+    n_effs = [r["n_eff_total"] for r in per_split]
+    ax.hist(n_effs, bins=30, color=M3_COLOR, alpha=0.7, edgecolor="black")
+    ax.axvline(np.mean(n_effs), color="red", linestyle="--",
+               label=f"mean = {np.mean(n_effs):.1f}")
+    ax.set_xlabel("n_eff (per split)")
+    ax.set_ylabel("Count")
+    ax.set_title("Effective Sample Size Across Splits")
+    ax.legend()
+
+    # Bottom-left: split outcomes
+    ax = axes[1, 0]
+    n_abstain = sum(1 for r in per_split if r["shifted_test"]["n_selected"] == 0)
+    n_valid_answering = sum(1 for r in per_split
+                           if r["shifted_test"]["valid"] and r["shifted_test"]["n_selected"] > 0)
+    n_invalid = sum(1 for r in per_split if not r["shifted_test"]["valid"])
+    bars = ax.bar(["Abstain\n(vacuous)", "Valid\n(answering)", "Invalid"],
+                  [n_abstain, n_valid_answering, n_invalid],
+                  color=["gray", M3_COLOR, TQA_COLOR], alpha=0.8, edgecolor="black")
+    for bar, val in zip(bars, [n_abstain, n_valid_answering, n_invalid]):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                str(val), ha='center', fontsize=11)
+    ax.set_ylabel("Number of Splits (out of 100)")
+    ax.set_title("Method 3: Split Outcomes on Shifted Domain")
+
+    # Bottom-right: efficiency
+    ax = axes[1, 1]
+    shifted_eff = [r["shifted_test"]["efficiency"] for r in per_split]
+    ax.hist(shifted_eff, bins=30, color=M3_COLOR, alpha=0.7, edgecolor="black")
+    ax.axvline(np.mean(shifted_eff), color="red", linestyle="--",
+               label=f"mean = {np.mean(shifted_eff):.3f}")
+    ax.set_xlabel("Efficiency (Shifted Domain)")
+    ax.set_ylabel("Count")
+    ax.set_title("Selection Efficiency Across Splits")
+    ax.legend()
+
+    fig.suptitle("Method 3: Weight Analysis", fontsize=14, y=1.01)
+    fig.tight_layout()
+    _save(fig, "method3_weight_analysis")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STAGE: Epsilon Sweep
+# ═══════════════════════════════════════════════════════════════════════════
+
+def plot_epsilon_sweep_validity(sweep):
+    """THE HEADLINE FIGURE: Validity vs epsilon for all three methods."""
+    epsilons = sweep["epsilons"]
+    m1_vals = [sweep["method1"][str(e)]["shifted_validity"] for e in epsilons]
+    m2_vals = [sweep["method2_optC"][str(e)]["shifted_validity"] for e in epsilons]
+    m3_vals = [sweep["method3"][str(e)]["shifted_validity"] for e in epsilons]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epsilons, [v * 100 for v in m1_vals], "o-", color=NQ_COLOR,
+            linewidth=2, markersize=8, label="M1: Vanilla SGen")
+    ax.plot(epsilons, [v * 100 for v in m2_vals], "s-", color=TQA_COLOR,
+            linewidth=2, markersize=8, label="M2: Conservative (Option C)")
+    ax.plot(epsilons, [v * 100 for v in m3_vals], "D-", color=M3_COLOR,
+            linewidth=2, markersize=8, label="M3: DS-SGen (Ours)")
+    ax.axhline(98, color="black", linestyle="--", linewidth=1.5,
+               label="PAC target (98%)", alpha=0.7)
+
+    ax.set_xlabel("epsilon (FDR-E target)", fontsize=12)
+    ax.set_ylabel("Shifted Domain Validity Rate (%)", fontsize=12)
+    ax.set_title("PAC Validity Under Domain Shift vs. Operating Point", fontsize=13)
+    ax.set_ylim(0, 105)
+    ax.set_xticks(epsilons)
+    ax.legend(loc="lower right", fontsize=10)
+    ax.grid(True, alpha=0.3)
+    _save(fig, "epsilon_sweep_validity")
+
+
+def plot_epsilon_sweep_efficiency(sweep):
+    """Efficiency vs epsilon for all three methods."""
+    epsilons = sweep["epsilons"]
+    m1_eff = [sweep["method1"][str(e)]["shifted_mean_efficiency"] for e in epsilons]
+    m2_eff = [sweep["method2_optC"][str(e)]["shifted_mean_efficiency"] for e in epsilons]
+    m3_eff = [sweep["method3"][str(e)]["shifted_mean_efficiency"] for e in epsilons]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epsilons, [v * 100 for v in m1_eff], "o-", color=NQ_COLOR,
+            linewidth=2, markersize=8, label="M1: Vanilla SGen")
+    ax.plot(epsilons, [v * 100 for v in m2_eff], "s-", color=TQA_COLOR,
+            linewidth=2, markersize=8, label="M2: Conservative (Option C)")
+    ax.plot(epsilons, [v * 100 for v in m3_eff], "D-", color=M3_COLOR,
+            linewidth=2, markersize=8, label="M3: DS-SGen (Ours)")
+
+    ax.set_xlabel("epsilon (FDR-E target)", fontsize=12)
+    ax.set_ylabel("Shifted Domain Efficiency (%)", fontsize=12)
+    ax.set_title("Selection Efficiency Under Domain Shift vs. Operating Point", fontsize=13)
+    ax.set_xticks(epsilons)
+    ax.legend(loc="upper left", fontsize=10)
+    ax.grid(True, alpha=0.3)
+    _save(fig, "epsilon_sweep_efficiency")
+
+
+def plot_three_method_comparison(sweep):
+    """Two-panel: validity (left) and efficiency (right) at eps=0.25 and 0.35."""
+    eps_vals = [0.25, 0.35]
+    methods = ["M1\nVanilla", "M2\nConserv.", "M3\nDS-SGen"]
+    colors = [NQ_COLOR, TQA_COLOR, M3_COLOR]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    x = np.arange(len(methods))
+    width = 0.35
+
+    for i, eps in enumerate(eps_vals):
+        ek = str(eps)
+        vals = [
+            sweep["method1"].get(ek, {}).get("shifted_validity", 0) * 100,
+            sweep["method2_optC"].get(ek, {}).get("shifted_validity", 0) * 100,
+            sweep["method3"].get(ek, {}).get("shifted_validity", 0) * 100,
+        ]
+        offset = (i - 0.5) * width
+        bars = ax1.bar(x + offset, vals, width, label=f"eps={eps}",
+                       color=[colors[j] for j in range(3)],
+                       edgecolor="black", alpha=0.85 if i == 0 else 0.55)
+        for bar, val in zip(bars, vals):
+            ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                    f"{val:.0f}%", ha='center', fontsize=9)
+
+    ax1.axhline(98, color="black", linestyle="--", linewidth=1.5, alpha=0.7)
+    ax1.set_ylabel("Shifted Domain Validity Rate (%)")
+    ax1.set_title("Validity")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(methods)
+    ax1.set_ylim(0, 110)
+    ax1.legend()
+
+    for i, eps in enumerate(eps_vals):
+        ek = str(eps)
+        effs = [
+            sweep["method1"].get(ek, {}).get("shifted_mean_efficiency", 0) * 100,
+            sweep["method2_optC"].get(ek, {}).get("shifted_mean_efficiency", 0) * 100,
+            sweep["method3"].get(ek, {}).get("shifted_mean_efficiency", 0) * 100,
+        ]
+        offset = (i - 0.5) * width
+        bars = ax2.bar(x + offset, effs, width, label=f"eps={eps}",
+                       color=[colors[j] for j in range(3)],
+                       edgecolor="black", alpha=0.85 if i == 0 else 0.55)
+        for bar, val in zip(bars, effs):
+            if val > 0.5:
+                ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
+                        f"{val:.1f}%", ha='center', fontsize=9)
+
+    ax2.set_ylabel("Shifted Domain Efficiency (%)")
+    ax2.set_title("Efficiency")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(methods)
+    ax2.legend()
+
+    fig.suptitle("Three-Method Comparison Under Domain Shift", fontsize=14)
+    fig.tight_layout()
+    _save(fig, "three_method_comparison")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -361,7 +579,8 @@ def main():
     parser = argparse.ArgumentParser(description="Generate DS-SGen plots")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
     parser.add_argument("--stage", type=str, default="all",
-                        choices=["all", "generation", "entailment", "baseline", "conservative"])
+                        choices=["all", "generation", "entailment", "baseline",
+                                 "conservative", "method3", "epsilon_sweep"])
     args = parser.parse_args()
 
     plt.rcParams.update(STYLE)
@@ -434,6 +653,33 @@ def main():
                 plot_method_comparison_table(baseline, cons)
         else:
             print("Skipping conservative plots — results not yet available")
+
+    # --- Method 3: Importance Weighted plots ---
+    if args.stage in ("all", "method3"):
+        iw_path = os.path.join(results_dir, "importance_weighted_results.json")
+        iw_results = load_cache(iw_path)
+        baseline_path = os.path.join(results_dir, "baseline_results.json")
+        baseline = load_cache(baseline_path)
+
+        if iw_results:
+            print("Method 3 plots:")
+            plot_method3_fdr_distribution(baseline, iw_results)
+            plot_weight_analysis(iw_results)
+        else:
+            print("Skipping Method 3 plots — results not yet available")
+
+    # --- Epsilon sweep plots ---
+    if args.stage in ("all", "epsilon_sweep"):
+        sweep_path = os.path.join(results_dir, "epsilon_sweep_results.json")
+        sweep = load_cache(sweep_path)
+
+        if sweep:
+            print("Epsilon sweep plots:")
+            plot_epsilon_sweep_validity(sweep)
+            plot_epsilon_sweep_efficiency(sweep)
+            plot_three_method_comparison(sweep)
+        else:
+            print("Skipping epsilon sweep plots — results not yet available")
 
     print("\nDone.")
 

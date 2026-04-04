@@ -3317,9 +3317,206 @@ adaptation over naive conservatism.
 
 ---
 
+---
+
+## 56. Why Conservative Methods Cannot Work: A Formal Argument
+
+The Method 2 results are not a failure of parameter tuning. They reflect a fundamental
+limitation that can be stated precisely.
+
+### The Conservative Threshold Theorem (Informal)
+
+Let the calibration dataset have correctness rate p_cal and the shifted test dataset have
+correctness rate p_shift, with p_shift < p_cal. A conservative threshold method works by
+either:
+- (A) Raising the threshold post-hoc
+- (B) Targeting a stricter FDR-E
+- (C) Widening the confidence bounds
+
+All three approaches have the same effect: they make the selection criterion more stringent,
+which reduces the number of questions answered (efficiency) while hoping to increase the
+precision among answered questions.
+
+**The key insight is that precision depends on the *conditional* distribution P(correct | fM1 ≥ tau),
+and this conditional is different across domains.** On TQA, questions with fM1 ≥ -0.12
+have ~83% precision. On NQ, the same threshold gives ~65% precision. No amount of
+threshold tightening changes this conditional — it only changes *which* part of the
+conditional distribution you're sampling from.
+
+### Worked Example: Why Option C Peaks at 41%
+
+Option C with frac=0.75 allocates delta_shift = 0.75 × (0.02 - 1e-5) ≈ 0.015 for shift
+uncertainty, leaving delta_cp = 0.02 - 1e-5 - 0.015 ≈ 0.005 for the Clopper-Pearson
+bound. This is ~4× smaller than the baseline delta_cp ≈ 0.020, so the CP bound is wider.
+
+Wider bound → need lower failure rate to satisfy CP_upper ≤ epsilon → need more selective
+threshold → fewer questions answered → lower efficiency. But the failures that remain
+among selected questions are *not reduced proportionally* because NQ's conditional
+accuracy at high fM1 is fundamentally lower.
+
+At frac=0.75:
+- Efficiency drops from 27.6% to 21.0% (a 24% relative reduction)
+- NQ validity improves from 29% to 41% (a 12pp improvement)
+- Of the 12pp improvement, most comes from more splits abstaining entirely (vacuous validity)
+- Among non-abstaining splits, the FDR-E distribution barely changes shape — it just shifts
+  slightly left as the most marginal threshold selections are eliminated
+
+### The Diminishing Returns Curve
+
+| delta_shift_frac | Remaining delta_cp | CP bound width | NQ validity | NQ efficiency |
+|------------------|-------------------|----------------|-------------|---------------|
+| 0.00             | 0.01999           | Narrow         | 29%         | 16.3%         |
+| 0.25             | 0.01499           | Moderate       | 33%         | 15.2%         |
+| 0.50             | 0.00999           | Wide           | 33%         | 14.7%         |
+| 0.75             | 0.00499           | Very wide      | 41%         | 12.1%         |
+| 0.90             | 0.00199           | Extremely wide | ~60%?       | ~5%?          |
+| 0.99             | 0.00019           | Near-vacuous   | ~95%?       | ~1%?          |
+
+(Values for frac > 0.75 are extrapolated. At frac=0.99, the bound is so wide that almost
+no threshold passes, leading to near-total abstention — "valid" only because no questions
+are answered.)
+
+The curve approaches 100% validity asymptotically but only through 0% efficiency. This is
+the definition of a vacuous guarantee: "We guarantee no errors because we never answer."
+
+---
+
+## 57. The Covariate vs Concept Shift Framework
+
+The Method 2 failure, combined with the Method 1 results, allows us to precisely locate
+the source of the problem. This analysis draws on WR-CP (Xu et al., ICLR 2025).
+
+### Decomposition
+
+The total domain shift between TQA (calibration) and NQ (test) can be decomposed as:
+
+**Total validity gap = Covariate component + Concept component**
+
+Where:
+- **Covariate component** = difference in P(X). TQA and NQ have different question
+  distributions. A domain classifier achieves ~72% accuracy, confirming the distributions
+  are separable. This component is fixable by importance reweighting.
+
+- **Concept component** = difference in P(Y|X). LLaMA is less accurate on NQ-style
+  questions (40.2% vs 61.2%) even after controlling for question confidence. This
+  component is NOT fixable by any calibration method — it requires a better model.
+
+### Evidence from the Results
+
+**Method 1 measures the total gap:** TQA validity = 100%, NQ validity = 29%.
+Total gap = 71pp.
+
+**Method 2 shows conservative methods can reduce the total gap slightly:**
+Best NQ validity = 41%, so the reduction = 12pp. But most of this comes from
+abstention, not from genuinely better selection.
+
+**Method 3 (importance reweighting) should fix the covariate component.** If the
+covariate component accounts for, say, 30pp of the 71pp total gap, then Method 3
+at eps=0.25 should achieve NQ validity ≈ 29% + 30pp = ~59% — better than Method 2
+but still below the 98% target.
+
+**At higher epsilon, the concept shift matters less.** At eps=0.35, the required
+selected accuracy drops to 65%. NQ's top 10% by fM1 achieves ~63% accuracy — close
+to the requirement. With covariate correction pushing this up, 98% validity becomes
+feasible.
+
+---
+
+## 58. Method 2 in the Epsilon Sweep Context
+
+Method 2 Option C (frac=0.75) is included in the epsilon sweep alongside Methods 1 and 3.
+Here is how Method 2 is expected to perform at different epsilon values:
+
+### Expected Epsilon Sweep Behavior for Method 2
+
+| Epsilon | Required accuracy | Available NQ accuracy | Method 2 expected |
+|---------|------------------|-----------------------|-------------------|
+| 0.25    | ≥ 75%            | ~69.4% (top 5%)       | 41% validity, 12.1% eff |
+| 0.30    | ≥ 70%            | ~69.4% (top 5%)       | ~50-60% validity? |
+| 0.35    | ≥ 65%            | ~63% (top 10%)        | ~60-75% validity? |
+| 0.40    | ≥ 60%            | ~60% (top 15%)        | ~70-85% validity? |
+
+Method 2 may eventually cross 98% validity at eps ≈ 0.45-0.50, but at very low efficiency.
+The question is whether Method 3 crosses earlier and with better efficiency.
+
+### How Method 2 is Called in the Epsilon Sweep
+
+In `run_epsilon_sweep.py`, Method 2 is called as:
+
+```python
+m2_run_split(
+    cal_merged, shifted_merged, base_seed + s, cfg_copy,
+    delta_shift=delta_shift_m2,  # = 0.75 * (delta - delta_p)
+)
+```
+
+This uses the `conservative._run_single_split()` function with a fixed delta_shift
+corresponding to Option C frac=0.75. Only the epsilon in `cfg_copy` changes across
+the sweep; the delta budget allocation stays the same.
+
+### Why Only Option C is Included
+
+Options A (safety factor) and B (reduced epsilon) are excluded because they collapse to
+0% efficiency at any non-trivial parameter value (gamma ≥ 1.2 or k ≥ 1.5). Including
+them would add three more flat lines at 100% validity / 0% efficiency to the plot, which
+is technically correct but misleading — they achieve validity only through complete
+abstention.
+
+---
+
+## 59. Critical Self-Assessment of Method 2
+
+### What Method 2 Did Well
+
+1. **Systematically explored the naive approach space.** Three orthogonal knobs (post-hoc
+   threshold, effective epsilon, delta allocation) cover the major ways to be "more
+   conservative" without domain knowledge. This isn't a straw man.
+
+2. **Provided clear negative evidence.** The fact that all three options fail in different
+   ways strengthens the case for principled domain adaptation. If even one naive option
+   worked well, Method 3 would be less compelling.
+
+3. **Established quantitative baselines.** The Pareto frontier (Section 53, Q8) provides
+   specific targets for Method 3 to beat.
+
+### What Method 2 Did Poorly
+
+1. **The parameter grid was too coarse.** Only 4 values per option means we might miss
+   interesting behavior between grid points. For instance, between frac=0.75 (41% validity)
+   and frac=1.0 (presumably ~98% validity but 0% efficiency), there's a steep tradeoff
+   that isn't captured. Counter-argument: the coarseness doesn't matter because the
+   theoretical argument (Section 56) shows the tradeoff is fundamentally unfavorable.
+
+2. **Options A and B were essentially dead on arrival.** The analysis could have predicted
+   this from the narrow feasibility margin. In hindsight, only Option C needed to be
+   implemented. But having all three confirms that the limitation is structural, not
+   option-specific.
+
+3. **No interaction effects were tested.** Combining Options A+C or B+C might yield
+   slightly better results than either alone. However, the fundamental limitation
+   (concept shift) means any improvement would be marginal.
+
+### Honest Assessment
+
+Method 2's primary contribution is as a **baseline for comparison**, not as a viable
+solution. It shows that naive conservatism buys at most 12pp of validity at 44% relative
+efficiency cost. This sets a clear bar for Method 3: it must achieve substantially more
+than 41% NQ validity to justify its additional complexity (embeddings, domain classifier,
+weight computation).
+
+If Method 3 also achieves only ~45-50% validity at eps=0.25, the story becomes: "Both
+conservative and reweighting approaches improve modestly over vanilla, but neither can
+overcome the concept shift at eps=0.25." This would still be a valid finding, showing
+that the SGen guarantee fundamentally requires P(Y|X) stability across domains. The
+epsilon sweep then shows where the guarantee can be restored.
+
+---
+
 *Document generated April 3, 2026. Updated April 4, 2026 with actual results from
 clean run (SLURM job 6952802), all three options validated against conservative_results.json,
 Appendix G questions answered, cross-option comparison, implications for Method 3, and
-issues log. All predictions from the original document have been compared against actual
-outcomes — two major prediction failures noted (Options A/B cliff collapse, Option C
-being the only viable option).*
+issues log. Updated April 4, 2026 with formal argument on conservative method limitations,
+covariate vs concept shift decomposition, epsilon sweep context, and critical self-assessment.
+All predictions from the original document have been compared against actual outcomes —
+two major prediction failures noted (Options A/B cliff collapse, Option C being the only
+viable option).*

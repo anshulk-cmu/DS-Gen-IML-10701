@@ -74,5 +74,19 @@ conservative:
   # Number of splits (null = use sgen.n_splits)
   n_splits: null
 
+# === Method 3: DS-SGen with Importance Reweighting ===
+importance_weighted:
+  embedding_model: "all-MiniLM-L6-v2"  # 384-dim, from sentence-transformers
+  classifier: "logistic_regression"
+  classifier_C: 1.0                     # regularization strength (inverse)
+  weight_clip_percentile: 95            # clip extreme weights at this percentile
+  weight_clip_percentiles: [90, 95, 99] # sensitivity sweep
+  n_splits: null                        # null = use sgen.n_splits
+
+# === Epsilon Sweep ===
+epsilon_sweep:
+  epsilons: [0.25, 0.30, 0.35, 0.40]
+  n_splits: 100
+
 # === Reproducibility ===
 seed: 42
