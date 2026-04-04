@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:A6000:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
-#SBATCH --time=48:00:00
+#SBATCH --time=7-00:00:00
 #SBATCH --requeue
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=anshulk@andrew.cmu.edu

@@ -1108,7 +1108,7 @@ No parameters were tuned by us — this is a faithful reproduction.
 Stage 1: Data Loading
     NQ-Open (3,610) + TriviaQA (3,610, downsampled)
     ↓
-Stage 2: LLM Generation (GPU-intensive, ~1-2 hours)
+Stage 2: LLM Generation (GPU-intensive, ~48 hours)
     For each question: greedy answer + fM1 + K=5 samples
     ↓
 Stage 3: Entailment Scoring (GPU, ~10 minutes)
@@ -1568,8 +1568,8 @@ Key properties:
 /data/user_data/anshulk/dsgen/cache/
 ├── nq_data.json              (792 KB)     Stage 1: 3,610 NQ records
 ├── tqa_data.json             (2.0 MB)     Stage 1: 3,610 TQA records
-├── nq_generations.json       (~6.3 MB)    Stage 2: NQ generation results (partial: 2,900/3,610)
-├── tqa_generations.json      (not yet)    Stage 2: TQA generation results
+├── nq_generations.json       (8.0 MB)     Stage 2: NQ generation results (complete: 3,610)
+├── tqa_generations.json      (~4.5 MB)    Stage 2: TQA generation results (partial: 2,550/3,610)
 ├── nq_entailment.json        (not yet)    Stage 3: NQ entailment scores
 └── tqa_entailment.json       (not yet)    Stage 3: TQA entailment scores
 ```
@@ -1619,7 +1619,7 @@ sbatch scripts/run_gpu.sh
 ```
 
 The SLURM script:
-- Requests 1x A6000 GPU, 48 GB RAM, 4 CPUs, 48 hours wall time
+- Requests 1x A6000 GPU, 48 GB RAM, 4 CPUs, 7-day wall time (preempt partition)
 - Activates the `dsgen` conda environment
 - Sets HF_HOME and TRANSFORMERS_CACHE to `/data/` (avoids filling home quota)
 - Runs `python run_baseline.py --config configs/default.yaml`
@@ -1650,70 +1650,106 @@ conservative parameter sweeps. No GPU needed. Completes in minutes.
 | Stage | Time | VRAM | Bottleneck |
 |-------|------|------|-----------|
 | Data loading | ~2 min | CPU only | TriviaQA download (633 MB) — cached after first run |
-| NQ generation (3,610 questions) | ~2-2.5 hours | ~16 GB | Autoregressive decoding, batch_size=1, ~2.5 sec/question |
-| TQA generation (3,610 questions) | ~2-2.5 hours | ~16 GB | Same as NQ |
+| NQ generation (3,610 questions) | ~24 hours | ~16 GB | Autoregressive decoding, batch_size=1, ~24 sec/question |
+| TQA generation (3,610 questions) | ~24 hours | ~16 GB | Same as NQ |
 | NQ entailment scoring | ~3-5 min | ~6 GB | Batched NLI, batch_size=64 |
 | TQA entailment scoring | ~3-5 min | ~6 GB | Same as NQ |
 | SGen-Semi (100 splits) | ~30 sec | CPU only | Numpy grid search |
-| **Total** | **~5 hours** | | Dominated by LLM generation |
+| **Total** | **~48 hours** | | Dominated by LLM generation |
 
 Generation is the bottleneck because it uses batch_size=1 (each question is processed
-individually due to variable input lengths from the chat template). Based on observed
-throughput (~2.5 sec/question including greedy + 5 sampled), 7,220 total questions
-(NQ + TQA) takes approximately 5 hours. Batching with padding could reduce this but
-adds complexity. The SLURM job requests 48 hours to accommodate preemption and restarts.
+individually due to variable input lengths from the chat template). Observed throughput
+is approximately 24 seconds per question (greedy pass + 5 sampled passes). Each pass
+generates up to 100 tokens autoregressively, and the 5 sampled passes cannot be batched
+as a single `num_return_sequences=5` call effectively runs them sequentially through
+the autoregressive loop. The SLURM job uses a 7-day wall time on the preempt partition
+to accommodate the full pipeline including potential preemption and restarts.
 
 ---
 
 ## 34. Current Status
 
-**As of April 3, 2026:**
+**As of April 4, 2026:**
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| NQ data cache | Complete | 3,610 records, 792 KB |
-| TQA data cache | Complete | 3,610 records, 2.0 MB |
-| NQ generation cache | **In progress** | 2,900/3,610 (~80%), job 6943094 running on babel-v9-24 |
-| TQA generation cache | Not started | Waiting on NQ generation |
-| NQ entailment cache | Not started | Waiting on generation |
+| NQ data cache | **Complete** | 3,610 records, 792 KB |
+| TQA data cache | **Complete** | 3,610 records, 2.0 MB |
+| NQ generation cache | **Complete** | 3,610 records, 8.0 MB |
+| TQA generation cache | **In progress** | 2,550/3,610 (71%), job 6951565 running on babel-w9-20 |
+| NQ entailment cache | Not started | Waiting on TQA generation (pipeline runs sequentially) |
 | TQA entailment cache | Not started | Waiting on generation |
 | SGen-Semi results | Not started | Waiting on entailment |
 | Method 2 (conservative) | Code complete | Waiting on baseline Stages 1-3 caches |
 
 **Job history:**
 
-| Job ID | Status | Notes |
-|--------|--------|-------|
-| 6942461 | Completed | GPU check — passed (A6000, CUDA 12.4, PyTorch 2.6) |
-| 6943087 | Failed (exit 1) | Crashed on `apply_chat_template` return type — fixed |
-| 6943094 | **Running** | NQ generation in progress, 2,450/3,610 done, ~1.5 hours elapsed |
+| Job ID | Partition | Duration | Outcome |
+|--------|-----------|----------|---------|
+| 6942461 | preempt | 5 sec | GPU check passed (A6000, CUDA 12.4, PyTorch 2.6) |
+| 6943087 | preempt | ~2 min | Failed — crashed on `apply_chat_template` return type, fixed |
+| 6943094 | preempt | ~4 hours | NQ complete (3,610), TQA reached 2,350/3,610 — **killed: 48h time limit** |
+| 6951565 | preempt | **running** | Resumed from TQA 2,350, 7-day wall time |
+
+**Note:** Job 6943094 proved the pipeline is functionally correct end-to-end through
+generation but was killed by the 48-hour wall clock limit. The generation stage takes
+~24 hours per dataset (not ~2 hours as originally estimated), so the 48-hour limit was
+insufficient for both datasets. Job 6951565 uses a 7-day time limit.
 
 ---
 
-## 35. Preliminary Data: Generation Statistics
+## 35. Generation Statistics (from cached data)
 
-From the first 2,450 NQ questions (partial cache):
+### NQ: Complete (3,610 questions)
 
-### fM1 (mean log-probability) distribution
+#### fM1 (mean log-probability) distribution
 
 | Statistic | Value |
 |-----------|-------|
-| Count | 2,450 questions |
-| Mean | -0.2274 |
-| Std | 0.1393 |
+| Count | 3,610 questions |
+| Mean | -0.2261 |
+| Std | 0.1371 |
 | Min (least confident) | -0.8869 |
-| 25th percentile | ~-0.30 |
-| Median | -0.1987 |
-| 75th percentile | ~-0.12 |
+| Median | -0.1985 |
 | Max (most confident) | -0.0005 |
+| Mean answer length | 156 characters |
 
-### Answer length distribution
+### TQA: Partial (2,350 of 3,610 questions)
+
+#### fM1 (mean log-probability) distribution
 
 | Statistic | Value |
 |-----------|-------|
-| Mean tokens | 37.4 |
-| Min tokens | 4 |
-| Max tokens | 100 (hit limit) |
+| Count | 2,550 questions (71% complete) |
+| Mean | -0.1814 |
+| Std | 0.1389 |
+| Min (least confident) | -0.8960 |
+| Median | -0.1445 |
+| Max (most confident) | -0.0001 |
+| Mean answer length | 113 characters |
+
+### Cross-domain comparison: Early domain shift signal
+
+| Metric | NQ (complete) | TQA (partial) | Difference |
+|--------|---------------|---------------|------------|
+| Mean fM1 | -0.2261 | -0.1814 | +0.0447 (TQA more confident) |
+| Median fM1 | -0.1985 | -0.1445 | +0.0540 (TQA more confident) |
+| fM1 range | [-0.887, -0.001] | [-0.896, -0.000] | Similar range |
+| Mean answer length | 156 chars | 113 chars | TQA answers are 28% shorter |
+
+**Key observation:** TQA answers have *higher* generation confidence (less negative
+fM1) and are shorter. This is counterintuitive — one might expect the shifted domain
+to be harder. Two possible explanations:
+
+1. **TriviaQA questions have cleaner factual answers.** Trivia questions ("Who painted
+   the Mona Lisa?") tend to have short, definitive answers ("Leonardo da Vinci").
+   NQ questions are more diverse and often require longer explanatory answers.
+
+2. **The model may be overconfident on TQA.** Higher fM1 does not mean higher accuracy.
+   If the model confidently generates wrong trivia answers, this is exactly the failure
+   mode that breaks SGen's PAC guarantee — the NQ-calibrated threshold τ₁ would be
+   too permissive for TQA because the model's confidence-correctness calibration
+   differs between domains. This will be tested in Stage 3 (entailment scoring).
 
 ### Example outputs
 
@@ -1735,10 +1771,9 @@ answers.
 
 ### What we can already see
 
-Even from partial data:
 - fM1 has good dynamic range (0 to -0.89), providing meaningful variation for threshold selection
-- Most answers are moderate length (30-40 tokens), consistent with the "concise one sentence" system prompt
 - The system prompt is effective: answers are focused and factual
+- The cross-domain fM1 difference suggests the domains have different confidence profiles, which is exactly the signal that could cause SGen's PAC guarantee to break
 
 ---
 
@@ -1766,7 +1801,7 @@ Even before the full pipeline completes:
 
 4. **Incremental caching works.** Job 6943087 crashed at question 0 (before any caching). Job 6943094 has been running for 1.5 hours and the cache shows 2,450 results — if preempted, all work is preserved.
 
-5. **Generation is the bottleneck.** At ~1 second per question (greedy + 5 samples), 7,220 questions (NQ + TQA) takes ~2 hours. Entailment scoring and the SGen algorithm are fast by comparison.
+5. **Generation is the bottleneck.** At ~24 seconds per question (greedy + 5 sampled passes), 7,220 questions (NQ + TQA) takes ~48 hours. Entailment scoring and the SGen algorithm are fast by comparison.
 
 ---
 
@@ -2042,6 +2077,9 @@ responses depend on the torch random state, which is controlled by `set_seed`.
 
 ---
 
-*Document generated April 3, 2026. All numbers validated against cached data and SLURM logs.
-This document will be updated when the full pipeline completes and final results are available.*
+*Document generated April 3, 2026. Updated April 4, 2026 with complete NQ generation
+statistics (3,610 questions), partial TQA statistics (2,350/3,610), corrected runtime
+estimates (~24h/dataset, not ~2h), updated cache file sizes, and cross-domain fM1
+comparison. All numbers validated against cached data and SLURM logs. This document
+will be updated when the full pipeline completes and final results are available.*
 

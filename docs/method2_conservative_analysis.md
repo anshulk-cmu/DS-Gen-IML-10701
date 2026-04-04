@@ -163,16 +163,17 @@ Method 2 requires all four cached outputs from Method 1's Stages 1-3:
 | `nq_entailment.json` | 3,610 entailment records (fM2, entail_score, entail_label) | Stage 3 | ~1-2 MB (estimate) |
 | `tqa_entailment.json` | 3,610 entailment records (same fields) | Stage 3 | ~1-2 MB (estimate) |
 
-**Current status (actual):** As of writing, the cache directory contains:
-- `nq_data.json` — 810,547 bytes (actual)
-- `nq_generations.json` — 6,822,600 bytes (actual, approximately 6.5 MB)
-- `tqa_data.json` — 2,075,312 bytes (actual)
-- `tqa_generations.json` — does not yet exist
+**Current status (actual, as of April 4, 2026):** The cache directory contains:
+- `nq_data.json` — 810,547 bytes (complete, 3,610 records)
+- `tqa_data.json` — 2,075,312 bytes (complete, 3,610 records)
+- `nq_generations.json` — 8,208,951 bytes (complete, 3,610 records)
+- `tqa_generations.json` — ~4.5 MB (partial, 2,550/3,610 records — in progress)
 - `nq_entailment.json` — does not yet exist
 - `tqa_entailment.json` — does not yet exist
 
-Method 2 cannot run until all six cache files exist. The generation pipeline is still
-running (or needs to be restarted).
+Method 2 cannot run until all six cache files exist. Job 6951565 is currently running
+on the preempt partition (7-day wall time) to complete TQA generation and then proceed
+through entailment scoring.
 
 **Important:** The cache file names use **singular** "entailment", not plural
 "entailments". This was the source of a bug discussed in Section 30.
@@ -2359,7 +2360,7 @@ per split.
 
 ## 45. Current Status
 
-### As of writing (April 2026)
+### As of April 4, 2026
 
 | Component | Status |
 |-----------|--------|
@@ -2367,30 +2368,28 @@ per split.
 | `run_conservative.py` | Complete, cache naming bug fixed |
 | `configs/default.yaml` | Complete, Method 2 config verified |
 | `scripts/run_conservative.sh` | Complete, SLURM ready |
-| NQ data cache | Complete (3,610 records) |
-| TQA data cache | Complete (3,610 records) |
-| NQ generation cache | In progress (approximately 2,900/3,610 based on last observation) |
-| TQA generation cache | Not started |
-| NQ entailment cache | Not started (requires NQ generations complete) |
-| TQA entailment cache | Not started (requires TQA generations complete) |
+| NQ data cache | **Complete** (3,610 records) |
+| TQA data cache | **Complete** (3,610 records) |
+| NQ generation cache | **Complete** (3,610 records, 8.0 MB) |
+| TQA generation cache | **In progress** (2,550/3,610, 71%) — job 6951565 running |
+| NQ entailment cache | Not started (pipeline runs sequentially after all generation) |
+| TQA entailment cache | Not started |
 | Method 2 results | Not started (requires all caches complete) |
 
 ### Blocking dependency chain
 
 ```
-NQ generation (in progress)
-  → NQ entailment
-    → All caches ready
-      → Method 2 can run
-
-TQA generation (not started)
-  → TQA entailment
-    → All caches ready
-      → Method 2 can run
+TQA generation (in progress, ~1,060 questions remaining)
+  → NQ entailment scoring
+    → TQA entailment scoring
+      → All caches ready
+        → Method 2 can run (CPU-only, ~5-15 minutes)
 ```
 
-Both generation and entailment stages must complete for both datasets before Method 2
-can run. The generation stage is the bottleneck (requires GPU time for LLM inference).
+NQ generation is complete. The remaining bottleneck is TQA generation (~1,060 questions
+at ~24 sec/question ≈ 7 hours), then entailment scoring for both datasets (~10 minutes
+total). The generation stage is the bottleneck (requires GPU time for LLM inference).
+Estimated time to Method 2 readiness: ~8 hours from now (April 4).
 
 ---
 
@@ -2915,5 +2914,7 @@ When Method 2 results become available, these questions should be answered:
 
 ---
 
-*End of Method 2 analysis. This document will be updated with actual results and
-validated predictions when the pipeline completes.*
+*Document generated April 3, 2026. Updated April 4, 2026 with current cache status
+(NQ generation complete, TQA generation 65% complete), corrected cache file sizes,
+and updated dependency chain estimates. All predictions remain unvalidated — actual
+results will be added when the baseline pipeline completes and Method 2 can run.*

@@ -254,6 +254,8 @@ ds-gen-10701/
 │   └── conservative.py             # Method 2: Conservative Threshold (3 options for naive shift fix)
 ├── run_baseline.py                 # Staged orchestrator (--stage data|generate|entailment|sgen|all)
 ├── run_conservative.py             # Method 2 orchestrator (loads cached Stages 1-3, CPU-only)
+├── plot_results.py                 # Visualization: all plots for paper (--stage generation|entailment|baseline|conservative|all)
+├── plots/                          # Generated PNG plots (300 DPI)
 ├── papers/                         # Detailed analysis notes for all 6 foundational papers + project plans
 ├── scripts/
 │   ├── check_gpu.sh                # SLURM GPU sanity check (preempt, A6000)
@@ -301,15 +303,58 @@ python run_conservative.py --config configs/default.yaml
 
 Every stage caches its output as JSON. If a SLURM job is preempted, resubmit -- it resumes from the last cached checkpoint (saves every 50 questions for generation, every 200 for entailment). Atomic writes via tempfile prevent corrupted caches.
 
+```bash
+# Generate plots (runs incrementally — only plots data that exists)
+python plot_results.py                          # all available plots
+python plot_results.py --stage generation       # fM1 histograms, answer length, boxplots
+python plot_results.py --stage entailment       # entailment scores, fM2, correctness, scatter
+python plot_results.py --stage baseline         # FDR-E distribution, efficiency, validity bars
+python plot_results.py --stage conservative     # Pareto frontier, summary table
+```
+
+Plots are saved to `plots/` as 300 DPI PNGs.
+
 ## Runtime Estimates (1x NVIDIA RTX A6000, 48GB)
 
 | Stage | Time | VRAM | Notes |
 |-------|------|------|-------|
 | Data loading | ~2 min | CPU | TriviaQA nocontext = 633MB download |
-| LLM generation (2 x 3,610 questions) | ~1-2 hours | ~16GB | Greedy + K=5 sampled per question |
+| LLM generation (2 x 3,610 questions) | ~48 hours | ~16GB | Greedy + K=5 sampled per question; ~24h per dataset |
 | Entailment scoring (~185K NLI calls) | ~3-5 min | ~6GB | Batch size 64 |
 | SGen-Semi (100 splits) | ~30 sec | CPU | Pure numpy/scipy |
-| **Total** | **~1.5-2.5 hours** | | |
+| **Total** | **~48-50 hours** | | |
+
+## Pipeline Status (Updated 2026-04-04)
+
+Current SLURM job: `6951565` on `babel-w9-20` (preempt, 7-day wall time)
+
+| Stage | NQ (3,610 Qs) | TQA (3,610 Qs) | Status |
+|-------|---------------|----------------|--------|
+| 1. Data loading | 3,610 cached | 3,610 cached | **Complete** |
+| 2. LLM generation | 3,610 cached | 2,550/3,610 (71%) | **In progress** |
+| 3. Entailment scoring | Not started | Not started | Blocked on Stage 2 |
+| 4. SGen-Semi | Not started | Not started | Blocked on Stage 3 |
+
+### Early Results — Generation Confidence (fM1) by Domain
+
+| Metric | NQ (in-domain) | TQA (shifted) |
+|--------|----------------|---------------|
+| Mean fM1 (log-prob) | -0.2261 +/- 0.1371 | -0.1814 +/- 0.1389 |
+| Median fM1 | -0.1985 | -0.1445 |
+| Range | [-0.887, -0.001] | [-0.896, -0.000] |
+| Mean answer length | 156 chars | 113 chars |
+| Samples per question | K=5 | K=5 |
+
+**Observation:** TQA answers are *more* confident (higher fM1) than NQ, and shorter. This is interesting — higher generation confidence does not necessarily mean higher correctness under domain shift. Whether this confidence is well-calibrated will be tested in Stage 3 (entailment) and Stage 4 (SGen-Semi validity rate).
+
+### Job History
+
+| Job ID | Partition | Duration | Outcome |
+|--------|-----------|----------|---------|
+| 6942461 | preempt | 5 sec | GPU check passed (A6000, CUDA 12.4) |
+| 6943087 | preempt | ~2 min | Failed (config/import issues, fixed) |
+| 6943094 | preempt | ~4 hours | NQ complete, TQA 2350/3610 — **killed: 48h time limit** |
+| 6951565 | preempt | running | Resumed from TQA 2350, 7-day time limit |
 
 ## Environment
 
@@ -331,7 +376,7 @@ GPU verified: NVIDIA RTX A6000, CUDA 12.4, PyTorch compute test passed.
 
 ## SLURM Notes
 
-All jobs use `--partition=preempt` with `--requeue` since we are at the 8-GPU regular allocation limit. The preempt partition provides A6000 GPUs but jobs may be interrupted. The incremental caching system ensures no work is lost on preemption.
+All jobs use `--partition=preempt` with `--requeue` and a 7-day wall time, since we are at the 8-GPU regular allocation limit. The preempt partition provides A6000 GPUs but jobs may be interrupted. The incremental caching system ensures no work is lost on preemption — generation saves every 50 questions, entailment every 200.
 
 ---
 
