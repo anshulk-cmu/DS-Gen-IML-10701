@@ -96,7 +96,7 @@ def plot_fm1_boxplot(nq_gen, tqa_gen):
     tqa_fm1 = [r["mean_logprob"] for r in tqa_gen]
 
     fig, ax = plt.subplots(figsize=(6, 5))
-    bp = ax.boxplot([nq_fm1, tqa_fm1], tick_labels=["NQ (in-domain)", "TQA (shifted)"],
+    bp = ax.boxplot([nq_fm1, tqa_fm1], tick_labels=["NQ", "TQA"],
                      patch_artist=True, widths=0.5)
     bp["boxes"][0].set_facecolor(NQ_COLOR + "80")
     bp["boxes"][1].set_facecolor(TQA_COLOR + "80")
@@ -153,8 +153,8 @@ def plot_fm1_vs_fm2_scatter(nq_gen, nq_ent, tqa_gen, tqa_ent):
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
 
     for ax, gen, ent, name, color in [
-        (axes[0], nq_gen, nq_ent, "NQ (in-domain)", NQ_COLOR),
-        (axes[1], tqa_gen, tqa_ent, "TQA (shifted)", TQA_COLOR),
+        (axes[0], nq_gen, nq_ent, "NQ", NQ_COLOR),
+        (axes[1], tqa_gen, tqa_ent, "TQA", TQA_COLOR),
     ]:
         fm1 = [g["mean_logprob"] for g in gen]
         fm2 = [e["fM2"] for e in ent]
@@ -181,7 +181,7 @@ def plot_correctness_rate_by_domain(nq_ent, tqa_ent):
     tqa_rate = np.mean([e["entail_label"] for e in tqa_ent])
 
     fig, ax = plt.subplots(figsize=(6, 5))
-    bars = ax.bar(["NQ (in-domain)", "TQA (shifted)"], [nq_rate, tqa_rate],
+    bars = ax.bar(["NQ", "TQA"], [nq_rate, tqa_rate],
                    color=[NQ_COLOR, TQA_COLOR], alpha=0.8)
     ax.set_ylabel("Correctness Rate (Entailment)")
     ax.set_title("Model Accuracy by Domain")
@@ -198,15 +198,21 @@ def plot_correctness_rate_by_domain(nq_ent, tqa_ent):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def plot_fdr_distribution(results):
-    """Plot 8: FDR-E distribution across 100 splits for NQ vs TQA."""
-    nq_fdrs = [s["nq_test"]["fdr_e"] for s in results["per_split"]]
-    tqa_fdrs = [s["tqa"]["fdr_e"] for s in results["per_split"]]
+    """Plot 8: FDR-E distribution across 100 splits for in-domain vs shifted."""
+    id_label = results["indomain"]["label"]
+    sh_label = results["shifted"]["label"]
+    id_fdrs = [s["indomain_test"]["fdr_e"] for s in results["per_split"]]
+    sh_fdrs = [s["shifted_test"]["fdr_e"] for s in results["per_split"]]
     epsilon = results["config"]["epsilon"]
 
     fig, ax = plt.subplots(figsize=(8, 5))
     bins = np.linspace(0, 0.6, 40)
-    ax.hist(nq_fdrs, bins=bins, alpha=0.6, label=f"NQ (valid={np.mean(np.array(nq_fdrs) <= epsilon):.0%})", color=NQ_COLOR)
-    ax.hist(tqa_fdrs, bins=bins, alpha=0.6, label=f"TQA (valid={np.mean(np.array(tqa_fdrs) <= epsilon):.0%})", color=TQA_COLOR)
+    ax.hist(id_fdrs, bins=bins, alpha=0.6,
+            label=f"{id_label} in-domain (valid={np.mean(np.array(id_fdrs) <= epsilon):.0%})",
+            color=TQA_COLOR)
+    ax.hist(sh_fdrs, bins=bins, alpha=0.6,
+            label=f"{sh_label} shifted (valid={np.mean(np.array(sh_fdrs) <= epsilon):.0%})",
+            color=NQ_COLOR)
     ax.axvline(epsilon, color="red", linestyle="--", linewidth=2, label=f"ε = {epsilon}")
     ax.set_xlabel("FDR-E")
     ax.set_ylabel("Count (out of 100 splits)")
@@ -217,13 +223,15 @@ def plot_fdr_distribution(results):
 
 def plot_efficiency_distribution(results):
     """Plot 9: Efficiency distribution across splits."""
-    nq_eff = [s["nq_test"]["efficiency"] for s in results["per_split"]]
-    tqa_eff = [s["tqa"]["efficiency"] for s in results["per_split"]]
+    id_label = results["indomain"]["label"]
+    sh_label = results["shifted"]["label"]
+    id_eff = [s["indomain_test"]["efficiency"] for s in results["per_split"]]
+    sh_eff = [s["shifted_test"]["efficiency"] for s in results["per_split"]]
 
     fig, ax = plt.subplots(figsize=(8, 5))
     bins = np.linspace(0, 1, 30)
-    ax.hist(nq_eff, bins=bins, alpha=0.6, label=f"NQ (mean={np.mean(nq_eff):.1%})", color=NQ_COLOR)
-    ax.hist(tqa_eff, bins=bins, alpha=0.6, label=f"TQA (mean={np.mean(tqa_eff):.1%})", color=TQA_COLOR)
+    ax.hist(id_eff, bins=bins, alpha=0.6, label=f"{id_label} in-domain (mean={np.mean(id_eff):.1%})", color=TQA_COLOR)
+    ax.hist(sh_eff, bins=bins, alpha=0.6, label=f"{sh_label} shifted (mean={np.mean(sh_eff):.1%})", color=NQ_COLOR)
     ax.set_xlabel("Efficiency (fraction of questions answered)")
     ax.set_ylabel("Count (out of 100 splits)")
     ax.set_title("Selection Efficiency Distribution Across Splits")
@@ -234,20 +242,22 @@ def plot_efficiency_distribution(results):
 
 def plot_validity_bar(results):
     """Plot 10: Validity rate bar chart (the headline result)."""
-    nq_val = results["nq"]["validity_rate"]
-    tqa_val = results["tqa"]["validity_rate"]
+    id_label = results["indomain"]["label"]
+    sh_label = results["shifted"]["label"]
+    id_val = results["indomain"]["validity_rate"]
+    sh_val = results["shifted"]["validity_rate"]
     target = 1 - results["config"]["delta"]
 
     fig, ax = plt.subplots(figsize=(6, 5))
-    bars = ax.bar(["NQ (in-domain)", "TQA (shifted)"], [nq_val, tqa_val],
-                   color=[NQ_COLOR, TQA_COLOR], alpha=0.8)
+    bars = ax.bar([f"{id_label} (in-domain)", f"{sh_label} (shifted)"], [id_val, sh_val],
+                   color=[TQA_COLOR, NQ_COLOR], alpha=0.8)
     ax.axhline(target, color="red", linestyle="--", linewidth=2, label=f"PAC target (1-δ = {target:.0%})")
     ax.set_ylabel("Validity Rate")
     ax.set_title("PAC Guarantee Validity: In-Domain vs Shifted")
     ax.set_ylim(0, 1.05)
     ax.yaxis.set_major_formatter(PercentFormatter(1.0))
     ax.legend()
-    for bar, val in zip(bars, [nq_val, tqa_val]):
+    for bar, val in zip(bars, [id_val, sh_val]):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
                 f"{val:.0%}", ha="center", fontsize=14, fontweight="bold")
     _save(fig, "validity_rate_comparison")
@@ -258,7 +268,11 @@ def plot_validity_bar(results):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def plot_validity_efficiency_tradeoff(cons_results):
-    """Plot 11: Pareto frontier — validity vs efficiency for TQA across all options."""
+    """Plot 11: Pareto frontier — validity vs efficiency on shifted domain across all options."""
+    # Get shifted label from first result
+    first_opt = next(iter(cons_results["option_a"].values()))
+    sh_label = first_opt["shifted"]["label"]
+
     fig, ax = plt.subplots(figsize=(9, 6))
 
     for option_key, option_label, marker in [
@@ -273,8 +287,8 @@ def plot_validity_efficiency_tradeoff(cons_results):
         efficiencies = []
         labels = []
         for param_key, sweep in sorted(option.items()):
-            validities.append(sweep["tqa"]["validity_rate"])
-            efficiencies.append(sweep["tqa"]["mean_efficiency"])
+            validities.append(sweep["shifted"]["validity_rate"])
+            efficiencies.append(sweep["shifted"]["mean_efficiency"])
             labels.append(param_key)
 
         color = METHOD_COLORS[option_label.split(":")[0].strip()]
@@ -287,9 +301,9 @@ def plot_validity_efficiency_tradeoff(cons_results):
                         xytext=(5, 5), fontsize=8, color=color)
 
     ax.axhline(0.98, color="red", linestyle="--", linewidth=1.5, label="PAC target (98%)")
-    ax.set_xlabel("TQA Efficiency (fraction answered)")
-    ax.set_ylabel("TQA Validity Rate")
-    ax.set_title("Method 2: Validity-Efficiency Tradeoff on TQA")
+    ax.set_xlabel(f"{sh_label} Efficiency (fraction answered)")
+    ax.set_ylabel(f"{sh_label} Validity Rate")
+    ax.set_title(f"Method 2: Validity-Efficiency Tradeoff on {sh_label} (shifted)")
     ax.xaxis.set_major_formatter(PercentFormatter(1.0))
     ax.yaxis.set_major_formatter(PercentFormatter(1.0))
     ax.legend(loc="lower right")
@@ -300,16 +314,19 @@ def plot_validity_efficiency_tradeoff(cons_results):
 
 def plot_method_comparison_table(baseline_results, cons_results):
     """Plot 12: Summary comparison table as a figure (for paper)."""
+    id_label = baseline_results["indomain"]["label"]
+    sh_label = baseline_results["shifted"]["label"]
+
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.axis("off")
 
     rows = [["Method 1 (Baseline)", "", "",
-             f"{baseline_results['nq']['validity_rate']:.0%}",
-             f"{baseline_results['nq']['mean_fdr_e']:.3f}",
-             f"{baseline_results['nq']['mean_efficiency']:.1%}",
-             f"{baseline_results['tqa']['validity_rate']:.0%}",
-             f"{baseline_results['tqa']['mean_fdr_e']:.3f}",
-             f"{baseline_results['tqa']['mean_efficiency']:.1%}"]]
+             f"{baseline_results['indomain']['validity_rate']:.0%}",
+             f"{baseline_results['indomain']['mean_fdr_e']:.3f}",
+             f"{baseline_results['indomain']['mean_efficiency']:.1%}",
+             f"{baseline_results['shifted']['validity_rate']:.0%}",
+             f"{baseline_results['shifted']['mean_fdr_e']:.3f}",
+             f"{baseline_results['shifted']['mean_efficiency']:.1%}"]]
 
     for option_key, option_name in [("option_a", "A"), ("option_b", "B"), ("option_c", "C")]:
         if option_key not in cons_results:
@@ -317,16 +334,17 @@ def plot_method_comparison_table(baseline_results, cons_results):
         for param_key, sweep in sorted(cons_results[option_key].items()):
             rows.append([
                 f"Method 2{option_name}", param_key, "",
-                f"{sweep['nq']['validity_rate']:.0%}",
-                f"{sweep['nq']['mean_fdr_e']:.3f}",
-                f"{sweep['nq']['mean_efficiency']:.1%}",
-                f"{sweep['tqa']['validity_rate']:.0%}",
-                f"{sweep['tqa']['mean_fdr_e']:.3f}",
-                f"{sweep['tqa']['mean_efficiency']:.1%}",
+                f"{sweep['indomain']['validity_rate']:.0%}",
+                f"{sweep['indomain']['mean_fdr_e']:.3f}",
+                f"{sweep['indomain']['mean_efficiency']:.1%}",
+                f"{sweep['shifted']['validity_rate']:.0%}",
+                f"{sweep['shifted']['mean_fdr_e']:.3f}",
+                f"{sweep['shifted']['mean_efficiency']:.1%}",
             ])
 
-    cols = ["Method", "Param", "", "NQ Valid", "NQ FDR-E", "NQ Eff",
-            "TQA Valid", "TQA FDR-E", "TQA Eff"]
+    cols = ["Method", "Param", "",
+            f"{id_label} Valid", f"{id_label} FDR-E", f"{id_label} Eff",
+            f"{sh_label} Valid", f"{sh_label} FDR-E", f"{sh_label} Eff"]
     table = ax.table(cellText=rows, colLabels=cols, loc="center", cellLoc="center")
     table.auto_set_font_size(False)
     table.set_fontsize(9)

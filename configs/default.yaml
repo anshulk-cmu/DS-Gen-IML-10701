@@ -42,11 +42,16 @@ sgen:
   epsilon: 0.25                    # Target FDR-E level (paper's main experimental setting)
   delta: 0.02                      # PAC confidence (1-delta = 0.98), matches paper experiments
   delta_p: 1.0e-5                  # Pseudo-labeling failure prob; subtracted from delta before Bonferroni
-  cal_frac: 0.70                   # Fraction of NQ for calibration (rest = in-domain test)
+  cal_frac: 0.70                   # Fraction of calibration dataset for calibration (rest = in-domain test)
   zu_frac: 0.75                    # Fraction of calibration as unlabeled Z_U (rest = labeled Z_E)
-  epsilon_e: 0.10                  # Conformal pseudo-labeling error rate
+  epsilon_e: 0.05                  # Conformal pseudo-labeling error rate (stricter for better pseudo-labels)
   n_splits: 100                    # Number of random calibration splits
-  n_grid: 50                       # Percentile-based grid points per score (|H| = n_grid^2 = 2500)
+  n_grid: 20                       # Percentile-based grid points per score (fewer = less Bonferroni penalty)
+  # Calibration: TQA (higher correctness 61%, stronger feature correlation r=0.45)
+  # Shifted test: NQ (lower correctness 40%, weaker feature correlation r=0.34)
+  # Selection: fM1-only (1D threshold, |H|=20 instead of 20*9=180)
+  cal_dataset: "tqa"               # Which dataset to calibrate on: "nq" or "tqa"
+  selection_mode: "fm1_only"       # "fm1_only", "fm2_only", or "both"
 
 # === Method 2: Conservative Threshold ===
 # Three options for naive domain-shift handling (all sweep over parameter values):

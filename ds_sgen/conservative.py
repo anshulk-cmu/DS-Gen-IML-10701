@@ -53,13 +53,17 @@ def _merge_records(records, generations, entailments):
     return merged
 
 
-def _compute_conformal_threshold(scores: np.ndarray, epsilon_e: float) -> float:
-    """Split conformal threshold: tau_CP = sorted[ceil((n+1)(1-eps_e)) - 1]."""
-    n = len(scores)
-    k = int(np.ceil((n + 1) * (1 - epsilon_e)))
-    if k > n:
+def _compute_conformal_threshold(correct_scores: np.ndarray, epsilon_e: float) -> float:
+    """Conformal threshold from correct answers' scores: epsilon_e quantile."""
+    n = len(correct_scores)
+    if n == 0:
         return float("inf")
-    sorted_scores = np.sort(scores)
+    k = int(np.ceil((n + 1) * epsilon_e))
+    if k < 1:
+        k = 1
+    if k > n:
+        return float(correct_scores.max())
+    sorted_scores = np.sort(correct_scores)
     return float(sorted_scores[k - 1])
 
 
@@ -82,8 +86,8 @@ def _clopper_pearson_upper(failures: int, total: int, alpha: float) -> float:
 # ── Core: single-split with conservative overrides ──────────────────────────
 
 def _run_single_split(
-    nq_merged: list[dict],
-    tqa_merged: list[dict],
+    cal_merged: list[dict],
+    shifted_merged: list[dict],
     split_seed: int,
     sgen_cfg: dict,
     *,
@@ -110,47 +114,51 @@ def _run_single_split(
     zu_frac = sgen_cfg["zu_frac"]
     epsilon_e = sgen_cfg["epsilon_e"]
     n_grid = sgen_cfg["n_grid"]
+    selection_mode = sgen_cfg.get("selection_mode", "fm1_only")
 
-    n_nq = len(nq_merged)
+    n_cal = len(cal_merged)
     rng = np.random.RandomState(split_seed)
 
-    # Step 1: Split NQ into calibration and in-domain test
-    indices = rng.permutation(n_nq)
-    cal_size = int(np.floor(n_nq * cal_frac))
+    # Step 1: Split calibration dataset into cal and in-domain test
+    indices = rng.permutation(n_cal)
+    cal_size = int(np.floor(n_cal * cal_frac))
     cal_idx = indices[:cal_size]
     test_idx = indices[cal_size:]
 
-    cal_data = [nq_merged[i] for i in cal_idx]
-    nq_test = [nq_merged[i] for i in test_idx]
+    cal_data = [cal_merged[i] for i in cal_idx]
+    indomain_test = [cal_merged[i] for i in test_idx]
 
     # Step 2: Split calibration into Z_U (unlabeled) and Z_E (labeled)
     zu_size = int(np.floor(len(cal_data) * zu_frac))
     z_u = cal_data[:zu_size]
     z_e = cal_data[zu_size:]
 
-    # Step 3: Conformal threshold from Z_E
-    ze_scores = np.array([r["entail_score"] for r in z_e])
-    tau_cp = _compute_conformal_threshold(ze_scores, epsilon_e)
+    # Step 3: Conformal threshold from Z_E correct answers' scores
+    ze_correct_scores = np.array([r["entail_score"] for r in z_e if r["entail_label"] == 1])
+    tau_cp = _compute_conformal_threshold(ze_correct_scores, epsilon_e)
 
     # Step 4: Pseudo-label Z_U
     for r in z_u:
         r["pseudo_label"] = 1 if r["entail_score"] >= tau_cp else 0
 
-    # Step 5: Grid search
+    # Step 5: Grid search (fM1-only by default)
     zu_fM1 = np.array([r["fM1"] for r in z_u])
     zu_fM2 = np.array([r["fM2"] for r in z_u])
     zu_pseudo = np.array([r["pseudo_label"] for r in z_u])
 
     tau1_grid = _build_percentile_grid(zu_fM1, n_grid)
     tau2_grid = _build_percentile_grid(zu_fM2, n_grid)
-    H = len(tau1_grid) * len(tau2_grid)
+
+    if selection_mode == "fm1_only":
+        H = len(tau1_grid)
+    elif selection_mode == "fm2_only":
+        H = len(tau2_grid)
+    else:
+        H = len(tau1_grid) * len(tau2_grid)
 
     # ── Option C: reduced delta budget ──
     delta_cp = delta - delta_p - delta_shift
     if delta_cp <= 0:
-        logger.warning("delta_cp=%.6f <= 0 (delta_shift=%.4f too large). "
-                        "No valid thresholds possible — abstaining on all.",
-                        delta_cp, delta_shift)
         abstain = {"fdr_e": 0.0, "efficiency": 0.0, "valid": True,
                    "n_selected": 0, "n_total": 0}
         return {
@@ -159,48 +167,63 @@ def _run_single_split(
             "tau1": None, "tau2": None, "grid_size_H": H,
             "epsilon_effective": epsilon_effective,
             "delta_shift": delta_shift, "tau_safety_factor": tau_safety_factor,
-            "nq_test": {**abstain, "n_total": len(nq_test)},
-            "tqa": {**abstain, "n_total": len(tqa_merged)},
+            "indomain_test": {**abstain, "n_total": len(indomain_test)},
+            "shifted_test": {**abstain, "n_total": len(shifted_merged)},
         }
     delta_adj = delta_cp / H if H > 0 else delta_cp
 
     best_tau1, best_tau2 = None, None
     best_efficiency = -1.0
 
-    for t1 in tau1_grid:
-        selected = zu_fM1 >= t1
-        for t2 in tau2_grid:
-            sel = selected & (zu_fM2 >= t2)
-            m = sel.sum()
+    if selection_mode == "fm1_only":
+        for t1 in tau1_grid:
+            sel = zu_fM1 >= t1
+            m = int(sel.sum())
             if m == 0:
                 continue
-
             failures = int((sel & (zu_pseudo == 0)).sum())
-            cp_upper = _clopper_pearson_upper(failures, int(m), delta_adj)
-
-            # ── Option B: use epsilon_effective (possibly < epsilon) ──
+            cp_upper = _clopper_pearson_upper(failures, m, delta_adj)
             if cp_upper <= epsilon_effective:
                 efficiency = m / len(z_u)
                 if efficiency > best_efficiency:
                     best_efficiency = efficiency
                     best_tau1 = t1
-                    best_tau2 = t2
+                    best_tau2 = 0.0
+    else:
+        for t1 in tau1_grid:
+            selected = zu_fM1 >= t1
+            for t2 in tau2_grid:
+                sel = selected & (zu_fM2 >= t2)
+                m = int(sel.sum())
+                if m == 0:
+                    continue
+                failures = int((sel & (zu_pseudo == 0)).sum())
+                cp_upper = _clopper_pearson_upper(failures, m, delta_adj)
+                if cp_upper <= epsilon_effective:
+                    efficiency = m / len(z_u)
+                    if efficiency > best_efficiency:
+                        best_efficiency = efficiency
+                        best_tau1 = t1
+                        best_tau2 = t2
 
     # ── Option A: inflate thresholds by safety factor ──
     if best_tau1 is not None and tau_safety_factor != 1.0:
         best_tau1 = best_tau1 + np.log(tau_safety_factor)  # fM1 is log-scale
-        best_tau2 = min(best_tau2 * tau_safety_factor, 1.0)  # fM2 in [0,1]
 
     # Step 6: Evaluate on test sets (always against original epsilon)
-    def _evaluate(data, tau1, tau2):
-        if tau1 is None or tau2 is None:
+    def _evaluate(data, tau1):
+        if tau1 is None:
             return {"fdr_e": 0.0, "efficiency": 0.0, "valid": True,
                     "n_selected": 0, "n_total": len(data)}
         fM1 = np.array([r["fM1"] for r in data])
-        fM2 = np.array([r["fM2"] for r in data])
         labels = np.array([r["entail_label"] for r in data])
 
-        selected = (fM1 >= tau1) & (fM2 >= tau2)
+        if selection_mode == "fm1_only":
+            selected = fM1 >= tau1
+        else:
+            fM2 = np.array([r["fM2"] for r in data])
+            selected = (fM1 >= tau1) & (fM2 >= best_tau2)
+
         n_selected = int(selected.sum())
         if n_selected == 0:
             return {"fdr_e": 0.0, "efficiency": 0.0, "valid": True,
@@ -209,12 +232,12 @@ def _run_single_split(
         n_wrong = int((selected & (labels == 0)).sum())
         fdr_e = n_wrong / n_selected
         efficiency = n_selected / len(data)
-        valid = fdr_e <= epsilon   # always original epsilon
+        valid = fdr_e <= epsilon
         return {"fdr_e": fdr_e, "efficiency": efficiency, "valid": valid,
                 "n_selected": n_selected, "n_total": len(data)}
 
-    nq_result = _evaluate(nq_test, best_tau1, best_tau2)
-    tqa_result = _evaluate(tqa_merged, best_tau1, best_tau2)
+    indomain_result = _evaluate(indomain_test, best_tau1)
+    shifted_result = _evaluate(shifted_merged, best_tau1)
 
     return {
         "split_seed": split_seed,
@@ -228,19 +251,21 @@ def _run_single_split(
         "epsilon_effective": epsilon_effective,
         "delta_shift": delta_shift,
         "tau_safety_factor": tau_safety_factor,
-        "nq_test": nq_result,
-        "tqa": tqa_result,
+        "indomain_test": indomain_result,
+        "shifted_test": shifted_result,
     }
 
 
 # ── Sweep runner for a single option ────────────────────────────────────────
 
 def _run_sweep(
-    nq_merged: list[dict],
-    tqa_merged: list[dict],
+    cal_merged: list[dict],
+    shifted_merged: list[dict],
     sgen_cfg: dict,
     base_seed: int,
     n_splits: int,
+    cal_label: str,
+    shifted_label: str,
     *,
     epsilon_effective: float | None = None,
     delta_shift: float = 0.0,
@@ -252,42 +277,45 @@ def _run_sweep(
     for s in range(n_splits):
         split_seed = base_seed + s
         result = _run_single_split(
-            nq_merged, tqa_merged, split_seed, sgen_cfg,
+            cal_merged, shifted_merged, split_seed, sgen_cfg,
             epsilon_effective=epsilon_effective,
             delta_shift=delta_shift,
             tau_safety_factor=tau_safety_factor,
         )
         per_split.append(result)
 
-    nq_fdr = [r["nq_test"]["fdr_e"] for r in per_split]
-    nq_eff = [r["nq_test"]["efficiency"] for r in per_split]
-    nq_val = [r["nq_test"]["valid"] for r in per_split]
-    tqa_fdr = [r["tqa"]["fdr_e"] for r in per_split]
-    tqa_eff = [r["tqa"]["efficiency"] for r in per_split]
-    tqa_val = [r["tqa"]["valid"] for r in per_split]
+    id_fdr = [r["indomain_test"]["fdr_e"] for r in per_split]
+    id_eff = [r["indomain_test"]["efficiency"] for r in per_split]
+    id_val = [r["indomain_test"]["valid"] for r in per_split]
+    sh_fdr = [r["shifted_test"]["fdr_e"] for r in per_split]
+    sh_eff = [r["shifted_test"]["efficiency"] for r in per_split]
+    sh_val = [r["shifted_test"]["valid"] for r in per_split]
 
     summary = {
-        "nq": {
-            "validity_rate": float(np.mean(nq_val)),
-            "mean_fdr_e": float(np.mean(nq_fdr)),
-            "std_fdr_e": float(np.std(nq_fdr)),
-            "mean_efficiency": float(np.mean(nq_eff)),
-            "std_efficiency": float(np.std(nq_eff)),
+        "indomain": {
+            "label": cal_label,
+            "validity_rate": float(np.mean(id_val)),
+            "mean_fdr_e": float(np.mean(id_fdr)),
+            "std_fdr_e": float(np.std(id_fdr)),
+            "mean_efficiency": float(np.mean(id_eff)),
+            "std_efficiency": float(np.std(id_eff)),
         },
-        "tqa": {
-            "validity_rate": float(np.mean(tqa_val)),
-            "mean_fdr_e": float(np.mean(tqa_fdr)),
-            "std_fdr_e": float(np.std(tqa_fdr)),
-            "mean_efficiency": float(np.mean(tqa_eff)),
-            "std_efficiency": float(np.std(tqa_eff)),
+        "shifted": {
+            "label": shifted_label,
+            "validity_rate": float(np.mean(sh_val)),
+            "mean_fdr_e": float(np.mean(sh_fdr)),
+            "std_fdr_e": float(np.std(sh_fdr)),
+            "mean_efficiency": float(np.mean(sh_eff)),
+            "std_efficiency": float(np.std(sh_eff)),
         },
         "per_split": per_split,
     }
 
-    logger.info("  %-30s | NQ valid=%.2f  eff=%.3f | TQA valid=%.2f  eff=%.3f",
-                label,
-                summary["nq"]["validity_rate"], summary["nq"]["mean_efficiency"],
-                summary["tqa"]["validity_rate"], summary["tqa"]["mean_efficiency"])
+    logger.info("  %-30s | %s valid=%.2f eff=%.3f | %s valid=%.2f eff=%.3f",
+                label, cal_label,
+                summary["indomain"]["validity_rate"], summary["indomain"]["mean_efficiency"],
+                shifted_label,
+                summary["shifted"]["validity_rate"], summary["shifted"]["mean_efficiency"])
 
     return summary
 
@@ -327,22 +355,32 @@ def run_conservative_experiment(
     tqa_merged = _merge_records(tqa_records, tqa_gen, tqa_ent)
     logger.info("  Merged %d NQ + %d TQA records", len(nq_merged), len(tqa_merged))
 
+    # Determine calibration direction
+    cal_dataset = sgen_cfg.get("cal_dataset", "tqa")
+    if cal_dataset == "tqa":
+        cal_merged, shifted_merged = tqa_merged, nq_merged
+        cal_label, shifted_label = "TQA", "NQ"
+    else:
+        cal_merged, shifted_merged = nq_merged, tqa_merged
+        cal_label, shifted_label = "NQ", "TQA"
+    logger.info("  Cal: %s (%d), Shifted: %s (%d)",
+                cal_label, len(cal_merged), shifted_label, len(shifted_merged))
+
     results = {}
 
     # ── Option A: Safety Factor on Thresholds ──
     safety_factors = cons_cfg["safety_factors"]
     logger.info("")
     logger.info("Option A: Safety Factor on Thresholds (gamma)")
-    logger.info("  tau1 += log(gamma), tau2 *= gamma")
+    logger.info("  tau1 += log(gamma)")
     logger.info("  Sweep: %s", safety_factors)
-    logger.info("  %-30s | %-22s | %-22s", "Setting", "NQ", "TQA")
-    logger.info("  " + "-" * 78)
 
     option_a = {}
     for gamma in safety_factors:
         label = f"gamma={gamma:.1f}"
         option_a[str(gamma)] = _run_sweep(
-            nq_merged, tqa_merged, sgen_cfg, base_seed, n_splits,
+            cal_merged, shifted_merged, sgen_cfg, base_seed, n_splits,
+            cal_label, shifted_label,
             tau_safety_factor=gamma,
             label=label,
         )
@@ -352,19 +390,14 @@ def run_conservative_experiment(
     epsilon_divisors = cons_cfg["epsilon_divisors"]
     logger.info("")
     logger.info("Option B: Reduced Epsilon in Grid Search")
-    logger.info("  constraint: cp_upper <= epsilon/k  (evaluate against original epsilon)")
-    logger.info("  Sweep: divisors=%s -> effective eps=%s",
-                epsilon_divisors,
-                [f"{epsilon/k:.3f}" for k in epsilon_divisors])
-    logger.info("  %-30s | %-22s | %-22s", "Setting", "NQ", "TQA")
-    logger.info("  " + "-" * 78)
 
     option_b = {}
     for k in epsilon_divisors:
         eps_eff = epsilon / k
         label = f"eps_div={k:.1f} (eps_eff={eps_eff:.3f})"
         option_b[str(k)] = _run_sweep(
-            nq_merged, tqa_merged, sgen_cfg, base_seed, n_splits,
+            cal_merged, shifted_merged, sgen_cfg, base_seed, n_splits,
+            cal_label, shifted_label,
             epsilon_effective=eps_eff,
             label=label,
         )
@@ -374,19 +407,14 @@ def run_conservative_experiment(
     delta_shift_fracs = cons_cfg["delta_shift_fracs"]
     logger.info("")
     logger.info("Option C: Delta Budget Allocation for Shift")
-    logger.info("  delta_cp = delta - delta_p - frac*(delta - delta_p)")
-    logger.info("  Sweep: fracs=%s -> delta_shift=%s",
-                delta_shift_fracs,
-                [f"{f * (delta - delta_p):.6f}" for f in delta_shift_fracs])
-    logger.info("  %-30s | %-22s | %-22s", "Setting", "NQ", "TQA")
-    logger.info("  " + "-" * 78)
 
     option_c = {}
     for frac in delta_shift_fracs:
         ds = frac * (delta - delta_p)
         label = f"frac={frac:.2f} (delta_s={ds:.6f})"
         option_c[str(frac)] = _run_sweep(
-            nq_merged, tqa_merged, sgen_cfg, base_seed, n_splits,
+            cal_merged, shifted_merged, sgen_cfg, base_seed, n_splits,
+            cal_label, shifted_label,
             delta_shift=ds,
             label=label,
         )
@@ -425,50 +453,52 @@ def print_conservative_summary(results: dict):
     print("METHOD 2: CONSERVATIVE THRESHOLD RESULTS")
     print("=" * 90)
 
-    header = (f"  {'Setting':<32} | {'NQ Valid':>8} {'NQ FDR':>8} {'NQ Eff':>8}"
-              f" | {'TQA Valid':>9} {'TQA FDR':>8} {'TQA Eff':>8}")
+    # Get labels from first option
+    first_opt = next(iter(results["option_a"].values()))
+    id_label = first_opt["indomain"]["label"]
+    sh_label = first_opt["shifted"]["label"]
+
+    header = (f"  {'Setting':<32} | {id_label+' Vld':>8} {id_label+' FDR':>8} {id_label+' Eff':>8}"
+              f" | {sh_label+' Vld':>8} {sh_label+' FDR':>8} {sh_label+' Eff':>8}")
     sep = "  " + "-" * 86
 
     # Option A
-    print("\n  Option A: Safety Factor on Thresholds")
-    print(f"  (tau1 += log(gamma), tau2 *= gamma)")
+    print(f"\n  Option A: Safety Factor on Thresholds (tau1 += log(gamma))")
     print(header)
     print(sep)
     for key, val in results["option_a"].items():
-        nq, tqa = val["nq"], val["tqa"]
+        idr, shr = val["indomain"], val["shifted"]
         label = f"gamma = {key}"
-        print(f"  {label:<32} | {nq['validity_rate']:>7.1%} {nq['mean_fdr_e']:>8.4f}"
-              f" {nq['mean_efficiency']:>8.4f}"
-              f" | {tqa['validity_rate']:>8.1%} {tqa['mean_fdr_e']:>8.4f}"
-              f" {tqa['mean_efficiency']:>8.4f}")
+        print(f"  {label:<32} | {idr['validity_rate']:>7.1%} {idr['mean_fdr_e']:>8.4f}"
+              f" {idr['mean_efficiency']:>8.4f}"
+              f" | {shr['validity_rate']:>7.1%} {shr['mean_fdr_e']:>8.4f}"
+              f" {shr['mean_efficiency']:>8.4f}")
 
     # Option B
-    print(f"\n  Option B: Reduced Epsilon")
-    print(f"  (grid search uses eps/k, evaluate against original eps)")
+    print(f"\n  Option B: Reduced Epsilon (grid uses eps/k, evaluate against original)")
     print(header)
     print(sep)
     for key, val in results["option_b"].items():
-        nq, tqa = val["nq"], val["tqa"]
+        idr, shr = val["indomain"], val["shifted"]
         k = float(key)
         eps_eff = 0.25 / k
         label = f"eps/{key} = {eps_eff:.3f}"
-        print(f"  {label:<32} | {nq['validity_rate']:>7.1%} {nq['mean_fdr_e']:>8.4f}"
-              f" {nq['mean_efficiency']:>8.4f}"
-              f" | {tqa['validity_rate']:>8.1%} {tqa['mean_fdr_e']:>8.4f}"
-              f" {tqa['mean_efficiency']:>8.4f}")
+        print(f"  {label:<32} | {idr['validity_rate']:>7.1%} {idr['mean_fdr_e']:>8.4f}"
+              f" {idr['mean_efficiency']:>8.4f}"
+              f" | {shr['validity_rate']:>7.1%} {shr['mean_fdr_e']:>8.4f}"
+              f" {shr['mean_efficiency']:>8.4f}")
 
     # Option C
-    print(f"\n  Option C: Delta Budget Allocation")
-    print(f"  (reserve frac of delta for shift)")
+    print(f"\n  Option C: Delta Budget Allocation (reserve frac of delta for shift)")
     print(header)
     print(sep)
     for key, val in results["option_c"].items():
-        nq, tqa = val["nq"], val["tqa"]
+        idr, shr = val["indomain"], val["shifted"]
         label = f"frac = {key}"
-        print(f"  {label:<32} | {nq['validity_rate']:>7.1%} {nq['mean_fdr_e']:>8.4f}"
-              f" {nq['mean_efficiency']:>8.4f}"
-              f" | {tqa['validity_rate']:>8.1%} {tqa['mean_fdr_e']:>8.4f}"
-              f" {tqa['mean_efficiency']:>8.4f}")
+        print(f"  {label:<32} | {idr['validity_rate']:>7.1%} {idr['mean_fdr_e']:>8.4f}"
+              f" {idr['mean_efficiency']:>8.4f}"
+              f" | {shr['validity_rate']:>7.1%} {shr['mean_fdr_e']:>8.4f}"
+              f" {shr['mean_efficiency']:>8.4f}")
 
     print()
     print("=" * 90)

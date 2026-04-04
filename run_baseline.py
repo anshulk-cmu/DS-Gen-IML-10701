@@ -24,23 +24,30 @@ def print_summary(results: dict):
     print("DS-SGen BASELINE RESULTS")
     print("=" * 70)
 
-    for domain, label in [("nq", "NQ (in-domain)"), ("tqa", "TriviaQA (shifted)")]:
-        r = results[domain]
-        print(f"\n  {label}:")
-        print(f"    Validity rate:   {r['validity_rate']:.2%}  (target: >= 98%)")
-        print(f"    Mean FDR-E:      {r['mean_fdr_e']:.4f} +/- {r['std_fdr_e']:.4f}  "
-              f"(target: <= {results['config']['epsilon']})")
-        print(f"    Mean efficiency: {r['mean_efficiency']:.4f} +/- {r['std_efficiency']:.4f}")
+    id_r = results["indomain"]
+    sh_r = results["shifted"]
+    epsilon = results["config"]["epsilon"]
+
+    print(f"\n  {id_r['label']} (in-domain, calibration):")
+    print(f"    Validity rate:   {id_r['validity_rate']:.2%}  (target: >= 98%)")
+    print(f"    Mean FDR-E:      {id_r['mean_fdr_e']:.4f} +/- {id_r['std_fdr_e']:.4f}  "
+          f"(target: <= {epsilon})")
+    print(f"    Mean efficiency: {id_r['mean_efficiency']:.4f} +/- {id_r['std_efficiency']:.4f}")
+
+    print(f"\n  {sh_r['label']} (shifted test):")
+    print(f"    Validity rate:   {sh_r['validity_rate']:.2%}  (target: >= 98%)")
+    print(f"    Mean FDR-E:      {sh_r['mean_fdr_e']:.4f} +/- {sh_r['std_fdr_e']:.4f}  "
+          f"(target: <= {epsilon})")
+    print(f"    Mean efficiency: {sh_r['mean_efficiency']:.4f} +/- {sh_r['std_efficiency']:.4f}")
 
     print("\n" + "=" * 70)
 
-    # Key hypothesis check
-    nq_val = results["nq"]["validity_rate"]
-    tqa_val = results["tqa"]["validity_rate"]
-    print(f"\n  NQ validity:  {nq_val:.2%}")
-    print(f"  TQA validity: {tqa_val:.2%}")
-    if tqa_val < nq_val - 0.05:
-        print("  >>> Domain shift detected: TQA validity dropped significantly")
+    id_val = id_r["validity_rate"]
+    sh_val = sh_r["validity_rate"]
+    print(f"\n  {id_r['label']} validity:  {id_val:.2%}")
+    print(f"  {sh_r['label']} validity: {sh_val:.2%}")
+    if sh_val < id_val - 0.05:
+        print(f"  >>> Domain shift detected: {sh_r['label']} validity dropped significantly")
     else:
         print("  >>> No significant domain shift in validity")
     print()

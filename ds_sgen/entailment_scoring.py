@@ -34,7 +34,10 @@ def load_entailment_model(cfg: dict):
     cache_dir = cfg["paths"]["hf_cache"]
 
     print(f"  Loading entailment tokenizer: {model_name}...")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+    # use_fast=False: transformers 5.x auto-conversion tries to parse spm.model
+    # as tiktoken BPE, which crashes. The slow DebertaV2Tokenizer works correctly.
+    # See: https://github.com/huggingface/transformers/issues/42583
+    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir, use_fast=False)
 
     print(f"  Loading entailment model: {model_name}...")
     model = AutoModelForSequenceClassification.from_pretrained(
