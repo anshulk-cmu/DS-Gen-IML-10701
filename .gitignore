@@ -33,3 +33,4 @@ logs/*.err
 
 # Slurm output
 slurm-*.out
+.env

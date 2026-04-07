@@ -9,9 +9,8 @@ document for the naive domain-shift fix. Numbers marked as "actual" or "from con
 are validated against code and configuration files. Numbers in the "Expected Results"
 and "Worked Example" sections (Sections 32-37) are predictions or illustrative — not
 measured outcomes and use hedging language ("probably", "approximately", "should").
-**Actual results are in Sections 48-55**, validated against `conservative_results.json`
-from clean run SLURM job 6952802 (April 4, 2026). Several predictions turned out to
-be wrong — see Section 53 (Appendix G answers) for details.
+The full pipeline completed on April 6, 2026. All results reflect the current pipeline
+(3,610 TQA, 500 splits, GPT-4o-mini).
 
 This document follows chronologically from `method1_baseline_analysis.md` and assumes
 familiarity with all concepts defined there. Cross-references to Method 1 sections are
@@ -732,7 +731,7 @@ Values above 2.0 were not included because:
 ### What about gamma between 1.0 and 1.2?
 
 Finer granularity could be useful for finding the exact tradeoff curve, but with only
-100 splits, the statistical resolution is limited. The difference between gamma = 1.0
+500 splits, the statistical resolution is limited. The difference between gamma = 1.0
 and gamma = 1.1 might not be distinguishable from random noise.
 
 ---
@@ -1484,11 +1483,11 @@ std_efficiency  = std(eff_1, eff_2, ..., eff_100)         # std dev of selection
 
 ### Interpretation of validity_rate
 
-The validity rate is the fraction of 100 random splits where FDR-E ≤ epsilon on the
-test set. Under the PAC guarantee, this should be at least 1 - delta = 0.98 (98/100).
+The validity rate is the fraction of 500 random splits where FDR-E ≤ epsilon on the
+test set. Under the PAC guarantee, this should be at least 1 - delta = 0.98 (490/500).
 
-**Important statistical note:** With only 100 splits, the granularity of the validity
-rate is 1%. A validity rate of 0.97 could be 97/100, which is one split below the
+**Important statistical note:** With 500 splits, the granularity of the validity
+rate is 0.2%. A validity rate of 0.976 could be 488/500, which is two splits below the
 target. Whether this constitutes a "failure" of the PAC guarantee is debatable — it
 could be sampling noise. Statistical tests (e.g., exact binomial test) would be needed
 to determine if a validity rate below 98% is significantly below target.
@@ -1534,7 +1533,7 @@ Method 2 has its own script (`run_conservative.py`) rather than being a flag on
 
 1. Method 2 requires no GPU — it only does numpy/scipy computation on cached data
 2. Method 1 takes hours (LLM generation, NLI scoring). Method 2 takes minutes.
-3. Separating them allows running Method 2 without re-running the expensive GPU stages
+3. Separating them allows running Method 2 without repeating the expensive GPU stages
 4. Different SLURM resource requirements (CPU-only vs GPU)
 
 ### Logging vs printing
@@ -1589,7 +1588,7 @@ for name, a, b in [("NQ gen", nq_records, nq_gen),
                    ("TQA ent", tqa_records, tqa_ent)]:
     if len(a) != len(b):
         logger.error("%s size mismatch: %d records vs %d cached. "
-                    "Re-run run_baseline.py.", name, len(a), len(b))
+                    "Run run_baseline.py to regenerate.", name, len(a), len(b))
         sys.exit(1)
 ```
 
@@ -1609,7 +1608,7 @@ explicit.
 | nq_entailment | 3,610 |
 | tqa_entailment | 3,610 |
 
-All six should be 3,610. If any differ, the pipeline needs to be re-run.
+All six should be 3,610. If any differ, the pipeline needs to be run again.
 
 ---
 
@@ -1715,10 +1714,10 @@ These parameters are used identically in Method 2:
 
 ### Total number of sweep configurations
 
-- Option A: 4 gamma values × 100 splits = 400 split evaluations
-- Option B: 5 k values × 100 splits = 500 split evaluations
-- Option C: 4 frac values × 100 splits = 400 split evaluations
-- **Total: 1,300 split evaluations**
+- Option A: 4 gamma values × 500 splits = 2,000 split evaluations
+- Option B: 5 k values × 500 splits = 2,500 split evaluations
+- Option C: 4 frac values × 500 splits = 2,000 split evaluations
+- **Total: 6,500 split evaluations**
 
 Each split evaluation involves one grid search over up to 2,500 (tau1, tau2) pairs and
 two test-set evaluations (NQ-test and TQA). The grid search is the bottleneck — it is
@@ -2170,11 +2169,11 @@ The output has three sections (one per option), each with:
 
 ```
 Setting     — descriptive label for the sweep parameter value
-NQ Valid    — validity rate on NQ-test (fraction of 100 splits with FDR-E ≤ 0.25)
-NQ FDR     — mean FDR-E across 100 splits on NQ-test
+NQ Valid    — validity rate on NQ-test (fraction of 500 splits with FDR-E ≤ 0.25)
+NQ FDR     — mean FDR-E across 500 splits on NQ-test
 NQ Eff     — mean efficiency (fraction of questions answered) on NQ-test
 TQA Valid   — validity rate on TQA
-TQA FDR    — mean FDR-E across 100 splits on TQA
+TQA FDR    — mean FDR-E across 500 splits on TQA
 TQA Eff    — mean efficiency on TQA
 ```
 
@@ -2188,7 +2187,7 @@ TQA Eff    — mean efficiency on TQA
 ### The footer key
 
 ```
-Key: Valid = P(FDR-E <= 0.25) across 100 splits |
+Key: Valid = P(FDR-E <= 0.25) across 500 splits |
      FDR-E = mean empirical error | Eff = selection rate
 ```
 
@@ -2257,7 +2256,7 @@ call and could be saved separately if needed for detailed post-hoc analysis.
 ### The saved summary
 
 What IS saved (for each option, each parameter value):
-- `nq.validity_rate` — fraction of 100 splits where FDR-E ≤ 0.25 on NQ-test
+- `nq.validity_rate` — fraction of 500 splits where FDR-E ≤ 0.25 on NQ-test
 - `nq.mean_fdr_e` — average FDR-E across splits
 - `nq.std_fdr_e` — standard deviation of FDR-E
 - `nq.mean_efficiency` — average selection rate
@@ -2369,36 +2368,33 @@ per split.
 
 ## 45. Current Status
 
-### As of April 4, 2026
+### As of April 6, 2026
 
 | Component | Status |
 |-----------|--------|
 | `ds_sgen/conservative.py` | Complete, code-reviewed |
-| `run_conservative.py` | Complete, cache naming bug fixed |
-| `configs/default.yaml` | Complete, Method 2 config verified |
-| `scripts/run_conservative.sh` | Complete, SLURM ready |
-| NQ data cache | **Complete** (3,610 records) |
-| TQA data cache | **Complete** (3,610 records) |
-| NQ generation cache | **Complete** (3,610 records, 8.0 MB) |
-| TQA generation cache | **In progress** (2,550/3,610, 71%) — job 6951565 running |
-| NQ entailment cache | Not started (pipeline runs sequentially after all generation) |
-| TQA entailment cache | Not started |
-| Method 2 results | Not started (requires all caches complete) |
+| `run_conservative.py` | Complete |
+| `configs/default.yaml` | Complete, 500 splits configured |
+| NQ data cache | **Complete** (3,610 records, 811 KB) |
+| TQA data cache | **Complete** (3,610 records, ~2.1 MB) |
+| NQ generation cache (GPT-4o-mini) | **Complete** (3,610 records, 18.9 MB) |
+| TQA generation cache (GPT-4o-mini) | **Complete** (3,610 records, ~15 MB) |
+| NQ entailment cache (DeBERTa-xxl) | **Complete** (3,610 records, 2.1 MB — 43.1% correct) |
+| TQA entailment cache (DeBERTa-xxl) | **Complete** (3,610 records, ~2.1 MB — 71.6% correct) |
+| Method 1 baseline results | **Complete** |
+| **Method 2 results** | **Complete** |
 
-### Blocking dependency chain
+### Execution order
 
 ```
-TQA generation (in progress, ~1,060 questions remaining)
-  → NQ entailment scoring
-    → TQA entailment scoring
-      → All caches ready
-        → Method 2 can run (CPU-only, ~5-15 minutes)
+Method 1 baseline (500 splits, CPU-only)
+  → Method 2 conservative (500 splits, CPU-only)
+    → Method 3 importance reweighting (500 splits, needs GPU for embeddings)
+      → Epsilon sweep (all methods × 4 epsilon values)
 ```
 
-NQ generation is complete. The remaining bottleneck is TQA generation (~1,060 questions
-at ~24 sec/question ≈ 7 hours), then entailment scoring for both datasets (~10 minutes
-total). The generation stage is the bottleneck (requires GPU time for LLM inference).
-Estimated time to Method 2 readiness: ~8 hours from now (April 4).
+All data caches are ready. Method 1 baseline and Method 2 conservative variants
+have both completed successfully.
 
 ---
 
@@ -2907,10 +2903,10 @@ When Method 2 results become available, these questions should be answered:
 5. **NQ stability:** Does NQ validity remain at ~98% for all configurations?
 
 6. **Threshold distributions:** What do the distributions of (tau1, tau2) look like
-   across 100 splits? Are they stable or highly variable?
+   across 500 splits? Are they stable or highly variable?
 
 7. **Abstention frequency:** For aggressive parameters (gamma=2.0, k=4.0), how many
-   of the 100 splits result in total abstention?
+   of the 500 splits result in total abstention?
 
 8. **Pareto frontier:** When plotted on validity vs. efficiency for TQA, which options
    define the Pareto frontier?
@@ -2923,30 +2919,24 @@ When Method 2 results become available, these questions should be answered:
 
 ---
 
-## 48. Actual Results: Clean Run (SLURM Job 6952802)
+## 48. Actual Results
 
-Method 2 ran as part of the clean pipeline on April 4, 2026 (SLURM job 6952802).
-All stages completed successfully with exit code 0. Method 2 itself took **5.3 seconds**
-on CPU (no GPU needed). All results below are validated against
-`conservative_results.json` and the SLURM log.
-
-### Configuration Used
+Method 2 completed on April 6, 2026. Runtime: 26.5 seconds on CPU.
+Configuration: 3,610 TQA calibration, 3,610 NQ shifted test, 500 splits,
+fm1_only selection mode, epsilon=0.25, delta=0.02.
 
 ```
-Calibration dataset: TQA (3,610 questions, 61.2% correct)
-Shifted test dataset: NQ (3,610 questions, 40.2% correct)
+Calibration dataset: TQA (3,610 questions, 71.6% correct)
+Shifted test dataset: NQ (3,610 questions, 43.1% correct)
 Selection mode: fM1-only (1D threshold, |H| = 20)
 Base epsilon: 0.25
 Base delta: 0.02
 delta_p: 1e-5
 epsilon_e: 0.05
-n_splits: 100
+n_splits: 500
 n_grid: 20
 cal_frac: 0.70, zu_frac: 0.75
 ```
-
-Note: This is the same configuration as Method 1. The three conservative options
-modify specific parameters within this framework, not the overall structure.
 
 ### Important Context: Calibration Direction
 
@@ -2967,7 +2957,7 @@ adding log(gamma) is equivalent to requiring gamma× higher probability.
 
 | gamma | TQA Validity | TQA FDR-E | TQA Std | TQA Efficiency | NQ Validity | NQ FDR-E | NQ Std | NQ Efficiency |
 |-------|-------------|-----------|---------|---------------|------------|---------|--------|--------------|
-| 1.0   | 100.00%     | 0.1226    | 0.0799  | 27.57%        | 29.00%     | 0.2444  | 0.1579 | 16.30%       |
+| 1.0   | 100.00%     | 0.1472    | 0.0588  | 40.78%        | 12.40%     | 0.3015  | 0.1176 | 22.87%       |
 | 1.2   | 100.00%     | 0.0000    | 0.0000  | 0.00%         | 100.00%    | 0.0000  | 0.0000 | 0.00%        |
 | 1.5   | 100.00%     | 0.0000    | 0.0000  | 0.00%         | 100.00%    | 0.0000  | 0.0000 | 0.00%        |
 | 2.0   | 100.00%     | 0.0000    | 0.0000  | 0.00%         | 100.00%    | 0.0000  | 0.0000 | 0.00%        |
@@ -2976,15 +2966,15 @@ adding log(gamma) is equivalent to requiring gamma× higher probability.
 
 **gamma = 1.0:** Identical to Method 1 baseline (no safety factor). This serves as
 the consistency check. Confirmed: all numbers match exactly.
-- TQA: 100% validity, 27.6% efficiency, FDR-E = 0.123
-- NQ: 29% validity, 16.3% efficiency, FDR-E = 0.244
+- TQA: 100% validity, 40.8% efficiency, FDR-E = 0.147
+- NQ: 12.4% validity, 22.9% efficiency, FDR-E = 0.302
 
 **gamma = 1.2:** Complete collapse. Adding log(1.2) = 0.182 to tau1 pushes the
 threshold so high that NO questions pass on ANY split. The algorithm abstains on
-all 100 splits, producing 0% efficiency everywhere.
+all 500 splits, producing 0% efficiency everywhere.
 
-Why so dramatic? The baseline tau1 values range from -0.137 to -0.044. Adding 0.182
-shifts these to +0.045 to +0.138. Since ALL fM1 values are negative (log-probabilities),
+Why so dramatic? The fM1 values are in [-0.9, 0] and tau1 ≈ -0.11. Adding 0.182
+pushes the threshold positive, and since ALL fM1 values are negative (log-probabilities),
 no question has fM1 ≥ 0. The safety factor overshoots.
 
 **gamma = 1.5 and 2.0:** Same complete collapse. log(1.5) = 0.405 and log(2.0) = 0.693
@@ -3023,7 +3013,7 @@ comparison.
 
 | k   | eps_eff | TQA Validity | TQA FDR-E | TQA Std | TQA Eff | NQ Validity | NQ FDR-E | NQ Std | NQ Eff |
 |-----|---------|-------------|-----------|---------|---------|------------|---------|--------|--------|
-| 1.0 | 0.250   | 100.00%     | 0.1226    | 0.0799  | 27.57%  | 29.00%     | 0.2444  | 0.1579 | 16.30% |
+| 1.0 | 0.250   | 100.00%     | 0.1472    | 0.0588  | 40.78%  | 12.40%     | 0.3015  | 0.1176 | 22.87% |
 | 1.5 | 0.167   | 100.00%     | 0.0000    | 0.0000  | 0.00%   | 100.00%    | 0.0000  | 0.0000 | 0.00%  |
 | 2.0 | 0.125   | 100.00%     | 0.0000    | 0.0000  | 0.00%   | 100.00%    | 0.0000  | 0.0000 | 0.00%  |
 | 3.0 | 0.083   | 100.00%     | 0.0000    | 0.0000  | 0.00%   | 100.00%    | 0.0000  | 0.0000 | 0.00%  |
@@ -3039,7 +3029,7 @@ simultaneously have enough selected questions and few enough pseudo-label failur
 to satisfy the tighter bound.
 
 Why? The baseline already operates near the feasibility boundary. With epsilon = 0.25,
-only 71/100 splits find a valid threshold. Reducing to 0.167 pushes all 100 splits
+only a fraction of splits find a valid threshold. Reducing to 0.167 pushes all 500 splits
 past the boundary.
 
 **k = 2.0, 3.0, 4.0:** All produce the same complete collapse.
@@ -3047,8 +3037,8 @@ past the boundary.
 ### Verdict on Option B
 
 **Option B is useless** for this model, same reason as Option A. The baseline
-threshold search is already barely feasible (29/100 splits abstain at k=1.0). Any
-tightening immediately tips every split into abstention.
+threshold search is already barely feasible. Any tightening immediately tips every
+split into abstention.
 
 This is a prediction failure relative to Section 19, which predicted "monotonic
 decay in efficiency as k increases." In reality, the transition is not gradual —
@@ -3068,7 +3058,7 @@ For the baseline to work, we need a region of fM1 space where:
 - `failures / selected` is small enough
 - The CP bound (accounting for finite-sample uncertainty) is ≤ epsilon
 
-With TQA's fM1-correctness correlation of r = 0.448, the best achievable
+With TQA's fM1-correctness correlation of r = 0.34, the best achievable
 `failures/selected` ratio at reasonable efficiency is about 0.18-0.20. The CP
 bound adds statistical uncertainty, pushing this to ~0.23-0.25. This barely clears
 epsilon = 0.25 on some splits. Reducing epsilon to 0.167 demands a raw ratio of
@@ -3085,12 +3075,12 @@ threshold selection.
 
 ### Full Results Table
 
-| frac | delta_s  | delta_cp | delta_adj   | TQA Vld | TQA FDR-E | TQA Eff | NQ Vld | NQ FDR-E | NQ Eff |
-|------|----------|----------|-------------|---------|-----------|---------|--------|----------|--------|
-| 0.00 | 0.000000 | 0.019990 | 0.000999500 | 100.00% | 0.1226    | 27.57%  | 29.00% | 0.2444   | 16.30% |
-| 0.25 | 0.004998 | 0.014993 | 0.000749625 | 100.00% | 0.1150    | 25.78%  | 33.00% | 0.2296   | 15.25% |
-| 0.50 | 0.009995 | 0.009995 | 0.000499750 | 100.00% | 0.1140    | 24.97%  | 33.00% | 0.2276   | 14.66% |
-| 0.75 | 0.014993 | 0.004998 | 0.000249875 | 100.00% | 0.0998    | 20.95%  | 41.00% | 0.1984   | 12.14% |
+| frac | delta_s  | delta_cp | TQA Vld | TQA FDR-E | TQA Eff | NQ Vld | NQ FDR-E | NQ Std | NQ Eff |
+|------|----------|----------|---------|-----------|---------|--------|----------|--------|--------|
+| 0.00 | 0.000000 | 0.019990 | 100.00% | 0.1472    | 40.78%  | 12.40% | 0.3015   | 0.1176 | 22.87% |
+| 0.25 | 0.004998 | 0.014993 | 100.00% | 0.1447    | 39.56%  | 13.80% | 0.2950   | —      | 22.05% |
+| 0.50 | 0.009995 | 0.009995 | 100.00% | 0.1410    | 38.10%  | 15.40% | 0.2869   | —      | 21.09% |
+| 0.75 | 0.014993 | 0.004998 | 100.00% | 0.1292    | 33.77%  | 22.00% | 0.2604   | —      | 18.50% |
 
 ### Analysis
 
@@ -3098,34 +3088,36 @@ threshold selection.
 
 **frac = 0.25:**
 - delta_adj shrinks from 9.995e-4 to 7.496e-4 (25% reduction)
-- TQA: validity stays at 100%, efficiency drops 27.6% → 25.8% (-1.8pp)
-- NQ: validity improves 29% → 33% (+4pp), FDR-E improves 0.244 → 0.230
+- TQA: validity stays at 100%, efficiency drops 40.8% → 39.6% (-1.2pp)
+- NQ: validity improves 12.4% → 13.8% (+1.4pp), FDR-E improves 0.302 → 0.295
 - This works because smaller delta_adj widens the CP bound, forcing the grid
   search to pick higher tau1 values. Higher tau1 selects fewer but more confident
   questions, reducing FDR-E on both domains.
 
 **frac = 0.50:**
 - delta_adj halved to 5.0e-4
-- TQA: efficiency 25.0%, NQ: validity 33% (same as 0.25), efficiency 14.7%
-- Diminishing returns: going from 0.25 to 0.50 barely changes NQ validity
-  but continues to reduce efficiency.
+- TQA: efficiency 38.1%, NQ: validity 15.4%, efficiency 21.1%
+- Continued gradual improvement in NQ validity.
 
 **frac = 0.75:**
 - delta_adj quartered to 2.5e-4
-- TQA: efficiency drops to 21.0%, NQ: validity improves to 41% (+12pp from baseline)
-- NQ FDR-E improves to 0.198 (below epsilon on average, but not on enough splits)
+- TQA: efficiency drops to 33.8%, NQ: validity improves to 22.0% (+9.6pp from baseline)
+- NQ FDR-E improves to 0.260
 - This is the strongest conservative setting that still produces non-zero efficiency
 
 ### Verdict on Option C
 
 **Option C is the only option that works**, and it works gradually. Unlike Options A
 and B which collapse entirely, Option C shows a smooth tradeoff:
-- NQ validity improves: 29% → 33% → 33% → 41%
-- TQA efficiency declines: 27.6% → 25.8% → 25.0% → 21.0%
-- NQ FDR-E improves: 0.244 → 0.230 → 0.228 → 0.198
+- NQ validity improves: 12.4% → 13.8% → 15.4% → 22.0%
+- TQA efficiency declines: 40.8% → 39.6% → 38.1% → 33.8%
+- NQ FDR-E improves: 0.302 → 0.295 → 0.287 → 0.260
+
+Option C shows a smooth tradeoff: NQ validity 12.4% → 22.0% (+9.6pp), NQ FDR-E
+0.30 → 0.26. Cost: TQA efficiency 40.8% → 33.8%.
 
 But even at frac = 0.75 (reserving 75% of the delta budget for shift), NQ validity
-is only 41% — far below the 98% PAC target. To reach 98%, we would need to reserve
+is only 22% — far below the 98% PAC target. To reach 98%, we would need to reserve
 even more delta, but delta_cp would approach 0, causing all splits to abstain.
 
 ### Why Option C Works But A and B Don't
@@ -3152,20 +3144,20 @@ where the empirical failure rate is low enough.
 
 | Method      | Param   | TQA Vld | TQA Eff | NQ Vld | NQ Eff | Notes |
 |-------------|---------|---------|---------|--------|--------|-------|
-| Baseline    | —       | 100%    | 27.6%   | 29%    | 16.3%  | Reference |
-| A: gamma    | 1.0     | 100%    | 27.6%   | 29%    | 16.3%  | = baseline |
+| Baseline    | —       | 100%    | 40.8%   | 12.4%  | 22.9%  | Reference |
+| A: gamma    | 1.0     | 100%    | 40.8%   | 12.4%  | 22.9%  | = baseline |
 | A: gamma    | 1.2     | 100%    | 0.0%    | 100%   | 0.0%   | Collapsed |
 | A: gamma    | 1.5     | 100%    | 0.0%    | 100%   | 0.0%   | Collapsed |
 | A: gamma    | 2.0     | 100%    | 0.0%    | 100%   | 0.0%   | Collapsed |
-| B: eps/k    | 1.0     | 100%    | 27.6%   | 29%    | 16.3%  | = baseline |
+| B: eps/k    | 1.0     | 100%    | 40.8%   | 12.4%  | 22.9%  | = baseline |
 | B: eps/k    | 1.5     | 100%    | 0.0%    | 100%   | 0.0%   | Collapsed |
 | B: eps/k    | 2.0     | 100%    | 0.0%    | 100%   | 0.0%   | Collapsed |
 | B: eps/k    | 3.0     | 100%    | 0.0%    | 100%   | 0.0%   | Collapsed |
 | B: eps/k    | 4.0     | 100%    | 0.0%    | 100%   | 0.0%   | Collapsed |
-| C: frac     | 0.00    | 100%    | 27.6%   | 29%    | 16.3%  | = baseline |
-| C: frac     | 0.25    | 100%    | 25.8%   | 33%    | 15.3%  | Gradual improvement |
-| C: frac     | 0.50    | 100%    | 25.0%   | 33%    | 14.7%  | Diminishing returns |
-| C: frac     | 0.75    | 100%    | 21.0%   | 41%    | 12.1%  | Best NQ validity |
+| C: frac     | 0.00    | 100%    | 40.8%   | 12.4%  | 22.9%  | = baseline |
+| C: frac     | 0.25    | 100%    | 39.6%   | 13.8%  | 22.1%  | Gradual improvement |
+| C: frac     | 0.50    | 100%    | 38.1%   | 15.4%  | 21.1%  | Continued improvement |
+| C: frac     | 0.75    | 100%    | 33.8%   | 22.0%  | 18.5%  | Best NQ validity |
 
 ### Key Findings
 
@@ -3177,17 +3169,16 @@ where the empirical failure rate is low enough.
    allocation gently widens the CP bound without changing the error target or
    threshold value, allowing gradual adjustment.
 
-3. **Even the best conservative setting (Option C, frac=0.75) only reaches 41%
+3. **Even the best conservative setting (Option C, frac=0.75) only reaches 22%
    NQ validity.** The PAC target is 98%. Conservative modifications cannot close
-   this 57-percentage-point gap without collapsing to zero efficiency.
+   this 76-percentage-point gap without collapsing to zero efficiency.
 
-4. **The NQ validity improvement is real but modest:** 29% → 41% (+12pp). The
-   cost is TQA efficiency: 27.6% → 21.0% (-6.6pp), a 24% relative reduction.
+4. **The NQ validity improvement is real but modest:** 12.4% → 22.0% (+9.6pp). The
+   cost is TQA efficiency: 40.8% → 33.8% (-7.0pp), a 17% relative reduction.
 
-5. **The 29% and 33% NQ validities include vacuous splits.** As shown in the
-   Method 1 analysis, 29/100 baseline splits abstain (select 0 questions) and
-   count as "valid." Option C at frac=0.25 has 33 abstaining splits. The actual
-   improvement in non-vacuous validity is even smaller.
+5. **The 12.4% and 13.8% NQ validities include vacuous splits.** As shown in the
+   Method 1 analysis, many baseline splits abstain (select 0 questions) and
+   count as "valid." The actual improvement in non-vacuous validity is even smaller.
 
 ---
 
@@ -3197,18 +3188,18 @@ Now that results are available, we can answer every question posed in Appendix G
 
 **Q1: Consistency check.** Do gamma=1.0, k=1.0, and frac=0.0 all produce identical results?
 **A1: Yes.** All three produce exactly the same numbers as Method 1:
-TQA validity=100%, FDR-E=0.1226, efficiency=27.57%;
-NQ validity=29%, FDR-E=0.2444, efficiency=16.30%.
+TQA validity=100%, FDR-E=0.1472, efficiency=40.78%;
+NQ validity=12.40%, FDR-E=0.3015, efficiency=22.87%.
 This confirms the conservative.py reimplementation is correct.
 
 **Q2: Validity improvement.** Which option first restores NQ validity to ≥ 98%?
-**A2: None.** The maximum NQ validity achieved is 41% (Option C, frac=0.75). Options A
+**A2: None.** The maximum NQ validity achieved is 22% (Option C, frac=0.75). Options A
 and B achieve 100% validity but only through complete abstention (0% efficiency). No
 configuration restores validity while maintaining useful efficiency.
 
 **Q3: Efficiency cost.** What is the efficiency at the first valid configuration?
-**A3:** The first configuration with NQ validity > 29% is Option C frac=0.25, with NQ
-efficiency = 15.3% (down from 16.3%). For Options A/B, the first improvement requires
+**A3:** The first configuration with NQ validity > 12.4% is Option C frac=0.25, with NQ
+efficiency = 22.1% (down from 22.9%). For Options A/B, the first improvement requires
 complete collapse to 0% efficiency.
 
 **Q4: Prediction validation.** Is Option C the weakest option?
@@ -3224,29 +3215,27 @@ the calibration direction swap, so the original question assumed NQ was the cali
 dataset. With the swap, TQA is in-domain and stays at 100%.
 
 **Q6: Threshold distributions.**
-**A6:** tau1 ranges from -0.137 to -0.044 across the 71 non-abstaining baseline splits
-(mean = -0.113, std = 0.024). tau_CP is very stable (mean = 0.490, std = 0.007). Option
-C slightly shifts tau1 upward (more selective) but doesn't change the qualitative
-distribution shape.
+**A6:** tau1 values cluster near -0.11. tau_CP is very stable. Option C slightly shifts
+tau1 upward (more selective) but doesn't change the qualitative distribution shape.
 
 **Q7: Abstention frequency.**
-**A7:** Baseline: 29/100 splits abstain. Option C frac=0.75: more splits abstain (exact
-count implied by efficiency drop from 27.6% to 21.0%). Options A (gamma≥1.2) and B
-(k≥1.5): all 100 splits abstain.
+**A7:** Baseline: many splits abstain. Option C frac=0.75: more splits abstain (implied
+by efficiency drop from 40.8% to 33.8%). Options A (gamma>=1.2) and B (k>=1.5): all
+500 splits abstain.
 
 **Q8: Pareto frontier.**
 **A8:** Only Option C defines a meaningful Pareto frontier. The points are:
-- (27.6% eff, 29% valid) — frac=0.0
-- (25.8% eff, 33% valid) — frac=0.25
-- (25.0% eff, 33% valid) — frac=0.50 (dominated by 0.25)
-- (21.0% eff, 41% valid) — frac=0.75
+- (40.8% eff, 12.4% valid) — frac=0.0
+- (39.6% eff, 13.8% valid) — frac=0.25
+- (38.1% eff, 15.4% valid) — frac=0.50
+- (33.8% eff, 22.0% valid) — frac=0.75
 Options A and B only have two points: the baseline and the origin (0%, 100%).
 
 **Q9: Method 3 improvement target.**
-**A9:** The best NQ efficiency at any meaningful validity improvement is 15.3% at 33%
-validity (Option C, frac=0.25). Method 3 needs to substantially beat this — ideally
-achieving ≥ 98% NQ validity with efficiency ≥ 15-20%. Since the SGen paper achieves
-~73% efficiency in-domain, there is substantial room for Method 3 to improve.
+**A9:** The best NQ validity is 22% at 18.5% efficiency (Option C, frac=0.75). The gap
+to 98% is 76pp. Method 3 needs to substantially beat this — ideally achieving NQ
+validity >> 22%. Since the SGen paper achieves ~73% efficiency in-domain, there is
+substantial room for Method 3 to improve.
 
 **Q10: Surprise results.**
 **A10:** Two major surprises:
@@ -3293,7 +3282,7 @@ The Method 2 results provide clear motivation and targets for Method 3 (DS-SGen)
 ### What Method 2 Proves
 
 1. **Conservative threshold adjustment is fundamentally limited.** It can improve NQ
-   validity from 29% to 41% but cannot reach 98% without collapsing efficiency to 0%.
+   validity from 12.4% to 22% but cannot reach 98% without collapsing efficiency to 0%.
 
 2. **The problem is not threshold tuning — it's distribution mismatch.** The fM1
    threshold that works on TQA doesn't work on NQ because the relationship between
@@ -3306,12 +3295,12 @@ The Method 2 results provide clear motivation and targets for Method 3 (DS-SGen)
 ### Method 3's Target
 
 Based on Method 2 results, Method 3 should aim for:
+- NQ validity >> 22% (the best that Method 2 can achieve)
 - NQ validity ≥ 98% (the PAC target that Method 2 cannot achieve)
-- NQ efficiency ≥ 15% (at least matching Method 2's best useful configuration)
-- Ideally NQ efficiency ≥ 25% (matching baseline in-domain efficiency)
+- NQ efficiency ≥ 18.5% (at least matching Method 2's best useful configuration)
 
-The gap between Method 2's best (41% validity, 12.1% efficiency) and the PAC target
-(98% validity) is 57 percentage points. If Method 3 can close even half of this gap
+The gap between Method 2's best (22% validity, 18.5% efficiency) and the PAC target
+(98% validity) is 76 percentage points. If Method 3 can close even half of this gap
 while maintaining efficiency, it will demonstrate the value of principled domain
 adaptation over naive conservatism.
 
@@ -3343,7 +3332,7 @@ have ~83% precision. On NQ, the same threshold gives ~65% precision. No amount o
 threshold tightening changes this conditional — it only changes *which* part of the
 conditional distribution you're sampling from.
 
-### Worked Example: Why Option C Peaks at 41%
+### Worked Example: Why Option C Peaks at 22%
 
 Option C with frac=0.75 allocates delta_shift = 0.75 × (0.02 - 1e-5) ≈ 0.015 for shift
 uncertainty, leaving delta_cp = 0.02 - 1e-5 - 0.015 ≈ 0.005 for the Clopper-Pearson
@@ -3355,9 +3344,9 @@ among selected questions are *not reduced proportionally* because NQ's condition
 accuracy at high fM1 is fundamentally lower.
 
 At frac=0.75:
-- Efficiency drops from 27.6% to 21.0% (a 24% relative reduction)
-- NQ validity improves from 29% to 41% (a 12pp improvement)
-- Of the 12pp improvement, most comes from more splits abstaining entirely (vacuous validity)
+- Efficiency drops from 40.8% to 33.8% (a 17% relative reduction)
+- NQ validity improves from 12.4% to 22.0% (a 9.6pp improvement)
+- Of the 9.6pp improvement, most comes from more splits abstaining entirely (vacuous validity)
 - Among non-abstaining splits, the FDR-E distribution barely changes shape — it just shifts
   slightly left as the most marginal threshold selections are eliminated
 
@@ -3365,12 +3354,12 @@ At frac=0.75:
 
 | delta_shift_frac | Remaining delta_cp | CP bound width | NQ validity | NQ efficiency |
 |------------------|-------------------|----------------|-------------|---------------|
-| 0.00             | 0.01999           | Narrow         | 29%         | 16.3%         |
-| 0.25             | 0.01499           | Moderate       | 33%         | 15.2%         |
-| 0.50             | 0.00999           | Wide           | 33%         | 14.7%         |
-| 0.75             | 0.00499           | Very wide      | 41%         | 12.1%         |
-| 0.90             | 0.00199           | Extremely wide | ~60%?       | ~5%?          |
-| 0.99             | 0.00019           | Near-vacuous   | ~95%?       | ~1%?          |
+| 0.00             | 0.01999           | Narrow         | 12.4%       | 22.9%         |
+| 0.25             | 0.01499           | Moderate       | 13.8%       | 22.1%         |
+| 0.50             | 0.00999           | Wide           | 15.4%       | 21.1%         |
+| 0.75             | 0.00499           | Very wide      | 22.0%       | 18.5%         |
+| 0.90             | 0.00199           | Extremely wide | ~40%?       | ~8%?          |
+| 0.99             | 0.00019           | Near-vacuous   | ~90%?       | ~1%?          |
 
 (Values for frac > 0.75 are extrapolated. At frac=0.99, the bound is so wide that almost
 no threshold passes, leading to near-total abstention — "valid" only because no questions
@@ -3397,22 +3386,22 @@ Where:
   distributions. A domain classifier achieves ~72% accuracy, confirming the distributions
   are separable. This component is fixable by importance reweighting.
 
-- **Concept component** = difference in P(Y|X). LLaMA is less accurate on NQ-style
-  questions (40.2% vs 61.2%) even after controlling for question confidence. This
+- **Concept component** = difference in P(Y|X). GPT-4o-mini is less accurate on NQ-style
+  questions (43.1% vs 71.6%) even after controlling for question confidence. This
   component is NOT fixable by any calibration method — it requires a better model.
 
 ### Evidence from the Results
 
-**Method 1 measures the total gap:** TQA validity = 100%, NQ validity = 29%.
-Total gap = 71pp.
+**Method 1 measures the total gap:** TQA validity = 100%, NQ validity = 12.4%.
+Total gap = 87.6pp.
 
 **Method 2 shows conservative methods can reduce the total gap slightly:**
-Best NQ validity = 41%, so the reduction = 12pp. But most of this comes from
+Best NQ validity = 22%, so the reduction = 9.6pp. But most of this comes from
 abstention, not from genuinely better selection.
 
 **Method 3 (importance reweighting) should fix the covariate component.** If the
-covariate component accounts for, say, 30pp of the 71pp total gap, then Method 3
-at eps=0.25 should achieve NQ validity ≈ 29% + 30pp = ~59% — better than Method 2
+covariate component accounts for, say, 30pp of the 87.6pp total gap, then Method 3
+at eps=0.25 should achieve NQ validity ≈ 12.4% + 30pp = ~42% — better than Method 2
 but still below the 98% target.
 
 **At higher epsilon, the concept shift matters less.** At eps=0.35, the required
@@ -3431,10 +3420,10 @@ Here is how Method 2 is expected to perform at different epsilon values:
 
 | Epsilon | Required accuracy | Available NQ accuracy | Method 2 expected |
 |---------|------------------|-----------------------|-------------------|
-| 0.25    | ≥ 75%            | ~69.4% (top 5%)       | 41% validity, 12.1% eff |
-| 0.30    | ≥ 70%            | ~69.4% (top 5%)       | ~50-60% validity? |
-| 0.35    | ≥ 65%            | ~63% (top 10%)        | ~60-75% validity? |
-| 0.40    | ≥ 60%            | ~60% (top 15%)        | ~70-85% validity? |
+| 0.25    | ≥ 75%            | ~69.4% (top 5%)       | 22% validity, 18.5% eff |
+| 0.30    | ≥ 70%            | ~69.4% (top 5%)       | ~30-40% validity? |
+| 0.35    | ≥ 65%            | ~63% (top 10%)        | ~45-60% validity? |
+| 0.40    | ≥ 60%            | ~60% (top 15%)        | ~60-75% validity? |
 
 Method 2 may eventually cross 98% validity at eps ≈ 0.45-0.50, but at very low efficiency.
 The question is whether Method 3 crosses earlier and with better efficiency.
@@ -3482,7 +3471,7 @@ abstention.
 ### What Method 2 Did Poorly
 
 1. **The parameter grid was too coarse.** Only 4 values per option means we might miss
-   interesting behavior between grid points. For instance, between frac=0.75 (41% validity)
+   interesting behavior between grid points. For instance, between frac=0.75 (22% validity)
    and frac=1.0 (presumably ~98% validity but 0% efficiency), there's a steep tradeoff
    that isn't captured. Counter-argument: the coarseness doesn't matter because the
    theoretical argument (Section 56) shows the tradeoff is fundamentally unfavorable.
@@ -3499,12 +3488,12 @@ abstention.
 ### Honest Assessment
 
 Method 2's primary contribution is as a **baseline for comparison**, not as a viable
-solution. It shows that naive conservatism buys at most 12pp of validity at 44% relative
+solution. It shows that naive conservatism buys at most 9.6pp of validity at 17% relative
 efficiency cost. This sets a clear bar for Method 3: it must achieve substantially more
-than 41% NQ validity to justify its additional complexity (embeddings, domain classifier,
+than 22% NQ validity to justify its additional complexity (embeddings, domain classifier,
 weight computation).
 
-If Method 3 also achieves only ~45-50% validity at eps=0.25, the story becomes: "Both
+If Method 3 also achieves only ~25-30% validity at eps=0.25, the story becomes: "Both
 conservative and reweighting approaches improve modestly over vanilla, but neither can
 overcome the concept shift at eps=0.25." This would still be a valid finding, showing
 that the SGen guarantee fundamentally requires P(Y|X) stability across domains. The
@@ -3512,11 +3501,5 @@ epsilon sweep then shows where the guarantee can be restored.
 
 ---
 
-*Document generated April 3, 2026. Updated April 4, 2026 with actual results from
-clean run (SLURM job 6952802), all three options validated against conservative_results.json,
-Appendix G questions answered, cross-option comparison, implications for Method 3, and
-issues log. Updated April 4, 2026 with formal argument on conservative method limitations,
-covariate vs concept shift decomposition, epsilon sweep context, and critical self-assessment.
-All predictions from the original document have been compared against actual outcomes —
-two major prediction failures noted (Options A/B cliff collapse, Option C being the only
-viable option).*
+*Document generated April 6, 2026. All results are from the current pipeline
+(3,610 TQA, 500 splits, GPT-4o-mini).*

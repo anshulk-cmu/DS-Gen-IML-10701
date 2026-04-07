@@ -209,6 +209,8 @@ def _run_single_split(
     # ── Option A: inflate thresholds by safety factor ──
     if best_tau1 is not None and tau_safety_factor != 1.0:
         best_tau1 = best_tau1 + np.log(tau_safety_factor)  # fM1 is log-scale
+        if best_tau2 is not None and selection_mode != "fm1_only":
+            best_tau2 = min(best_tau2 * tau_safety_factor, 1.0)  # fM2 in [0,1]
 
     # Step 6: Evaluate on test sets (always against original epsilon)
     def _evaluate(data, tau1):
@@ -446,7 +448,7 @@ def run_conservative_experiment(
     return results
 
 
-def print_conservative_summary(results: dict):
+def print_conservative_summary(results: dict, epsilon: float = 0.25):
     """Print formatted comparison table for all conservative options."""
     print()
     print("=" * 90)
@@ -481,7 +483,7 @@ def print_conservative_summary(results: dict):
     for key, val in results["option_b"].items():
         idr, shr = val["indomain"], val["shifted"]
         k = float(key)
-        eps_eff = 0.25 / k
+        eps_eff = epsilon / k
         label = f"eps/{key} = {eps_eff:.3f}"
         print(f"  {label:<32} | {idr['validity_rate']:>7.1%} {idr['mean_fdr_e']:>8.4f}"
               f" {idr['mean_efficiency']:>8.4f}"
@@ -502,7 +504,7 @@ def print_conservative_summary(results: dict):
 
     print()
     print("=" * 90)
-    print("  Key: Valid = P(FDR-E <= 0.25) across 100 splits | "
+    print(f"  Key: Valid = P(FDR-E <= {epsilon}) across splits | "
           "FDR-E = mean empirical error | Eff = selection rate")
     print("=" * 90)
     print()

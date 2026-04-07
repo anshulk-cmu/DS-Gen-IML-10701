@@ -181,25 +181,26 @@ def _weighted_conformal_threshold(
 # ── Weighted Clopper-Pearson bound ────────────────────────────────────────────
 
 def _weighted_clopper_pearson_upper(
-    failures: int,
-    total: int,
+    weighted_failure_rate: float,
     alpha: float,
     n_eff: float,
 ) -> float:
-    """Clopper-Pearson upper bound using effective sample size.
+    """Clopper-Pearson upper bound using weighted failure rate and effective sample size.
 
-    Scales the observed failure rate to n_eff effective i.i.d. samples.
+    Args:
+        weighted_failure_rate: sum(w_i for failures) / sum(w_i for selected),
+            i.e. the importance-weighted estimate of the target-domain failure rate.
+        alpha: significance level for one-sided bound.
+        n_eff: effective sample size of the selected subset.
     """
     if n_eff < 5:
         return 1.0  # vacuous — too few effective samples
-    if total == 0:
-        return 0.0
-    if failures == total:
+    if weighted_failure_rate <= 0.0:
+        return float(beta_dist.ppf(1 - alpha, 1, n_eff))
+    if weighted_failure_rate >= 1.0:
         return 1.0
 
-    # Observed failure rate, scaled to effective sample size
-    failure_rate = failures / total
-    failures_eff = failure_rate * n_eff
+    failures_eff = weighted_failure_rate * n_eff
 
     # Guard against float rounding
     failures_eff = max(0.0, min(n_eff - 0.001, failures_eff))
@@ -299,14 +300,16 @@ def _run_single_split(
             m = int(sel.sum())
             if m == 0:
                 continue
-            failures = int((sel & (zu_pseudo == 0)).sum())
+            fail_mask = sel & (zu_pseudo == 0)
 
-            # Weighted n_eff for the SELECTED subset
+            # Weighted failure rate and n_eff for the SELECTED subset
             sel_weights = z_u_weights[sel]
+            fail_weights = z_u_weights[fail_mask]
+            w_fail_rate = fail_weights.sum() / sel_weights.sum()
             n_eff_sel = (sel_weights.sum()) ** 2 / (sel_weights ** 2).sum()
 
             cp_upper = _weighted_clopper_pearson_upper(
-                failures, m, delta_adj, n_eff_sel
+                w_fail_rate, delta_adj, n_eff_sel
             )
             if cp_upper <= epsilon:
                 efficiency = m / len(z_u)
@@ -322,13 +325,15 @@ def _run_single_split(
             m = int(sel.sum())
             if m == 0:
                 continue
-            failures = int((sel & (zu_pseudo == 0)).sum())
+            fail_mask = sel & (zu_pseudo == 0)
 
             sel_weights = z_u_weights[sel]
+            fail_weights = z_u_weights[fail_mask]
+            w_fail_rate = fail_weights.sum() / sel_weights.sum()
             n_eff_sel = (sel_weights.sum()) ** 2 / (sel_weights ** 2).sum()
 
             cp_upper = _weighted_clopper_pearson_upper(
-                failures, m, delta_adj, n_eff_sel
+                w_fail_rate, delta_adj, n_eff_sel
             )
             if cp_upper <= epsilon:
                 efficiency = m / len(z_u)
@@ -346,13 +351,15 @@ def _run_single_split(
                 m = int(sel.sum())
                 if m == 0:
                     continue
-                failures = int((sel & (zu_pseudo == 0)).sum())
+                fail_mask = sel & (zu_pseudo == 0)
 
                 sel_weights = z_u_weights[sel]
+                fail_weights = z_u_weights[fail_mask]
+                w_fail_rate = fail_weights.sum() / sel_weights.sum()
                 n_eff_sel = (sel_weights.sum()) ** 2 / (sel_weights ** 2).sum()
 
                 cp_upper = _weighted_clopper_pearson_upper(
-                    failures, m, delta_adj, n_eff_sel
+                    w_fail_rate, delta_adj, n_eff_sel
                 )
                 if cp_upper <= epsilon:
                     efficiency = m / len(z_u)
@@ -428,7 +435,7 @@ def run_experiment(
     1. Embed all prompts.
     2. Train domain classifier.
     3. Compute importance weights for calibration dataset.
-    4. Run 100 splits with weighted conformal + weighted PAC bounds.
+    4. Run n_splits splits with weighted conformal + weighted PAC bounds.
     """
     sgen_cfg = cfg["sgen"]
     iw_cfg = cfg["importance_weighted"]

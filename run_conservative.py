@@ -129,7 +129,7 @@ def main():
     elapsed = time.time() - t0
 
     # Print summary table
-    print_conservative_summary(results)
+    print_conservative_summary(results, epsilon=cfg["sgen"]["epsilon"])
 
     logger.info("Total time: %.1f seconds", elapsed)
 

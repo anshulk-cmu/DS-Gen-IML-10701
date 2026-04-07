@@ -3,7 +3,6 @@
 
 # === Paths ===
 paths:
-  model: "/data/user_data/anshulk/dsgen/model_cache/Llama-3.1-8B-Instruct"
   entailment_model: "microsoft/deberta-v2-xxlarge-mnli"  # 1.5B params, label order: {0:CONTRADICTION, 1:NEUTRAL, 2:ENTAILMENT}
   cache_dir: "/data/user_data/anshulk/dsgen/cache"
   results_dir: "/data/user_data/anshulk/dsgen/results"
@@ -16,16 +15,16 @@ data:
   tqa_dataset: "mandarjoshi/trivia_qa"              # NOT "trivia_qa" — full namespaced ID required
   tqa_config: "unfiltered.nocontext"                # Skips 29GB doc download; same questions/answers as "unfiltered"
   tqa_split: "validation"                           # 11,313 questions
-  tqa_sample_size: 3610                             # Downsample to match NQ size
+  tqa_sample_size: 3610                             # Match NQ size for equal calibration/shift
   sample_seed: 42
 
-# === LLM Generation ===
+# === LLM Generation (GPT-4o-mini via OpenAI API) ===
 generation:
-  system_prompt: "Answer the following question concisely in one sentence."  # Used with chat template
-  max_new_tokens: 100
+  system_prompt: "Answer the following question concisely in one sentence."
+  model: "gpt-4o-mini"
+  max_tokens: 512
   num_samples: 5                   # K=5, matches SGen paper
   temperature: 0.7
-  batch_size: 1                    # Start with 1, increase if VRAM allows
   save_every: 50                   # Incremental cache save frequency
 
 # === Entailment Scoring ===
@@ -45,7 +44,7 @@ sgen:
   cal_frac: 0.70                   # Fraction of calibration dataset for calibration (rest = in-domain test)
   zu_frac: 0.75                    # Fraction of calibration as unlabeled Z_U (rest = labeled Z_E)
   epsilon_e: 0.05                  # Conformal pseudo-labeling error rate (stricter for better pseudo-labels)
-  n_splits: 100                    # Number of random calibration splits
+  n_splits: 500                    # Number of random calibration splits (SE ≈ 0.021 at p=0.35, tight enough for method comparison)
   n_grid: 20                       # Percentile-based grid points per score (fewer = less Bonferroni penalty)
   # Calibration: TQA (higher correctness 61%, stronger feature correlation r=0.45)
   # Shifted test: NQ (lower correctness 40%, weaker feature correlation r=0.34)
@@ -86,7 +85,7 @@ importance_weighted:
 # === Epsilon Sweep ===
 epsilon_sweep:
   epsilons: [0.25, 0.30, 0.35, 0.40]
-  n_splits: 100
+  n_splits: 500
 
 # === Reproducibility ===
 seed: 42

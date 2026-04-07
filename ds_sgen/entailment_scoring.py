@@ -18,14 +18,32 @@ Output per question:
 }
 """
 
+import logging
+import os
+import time
+
 import torch
 import torch.nn.functional as F
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from ds_sgen.utils import get_cache_path, load_cache, save_cache
 
+logger = logging.getLogger(__name__)
 
 ENTAILMENT_IDX = 2  # For microsoft/deberta-v2-xxlarge-mnli
+
+
+def _setup_file_logger(log_dir: str):
+    """Add a file handler to the module logger if one doesn't exist yet."""
+    if any(isinstance(h, logging.FileHandler) for h in logger.handlers):
+        return
+    os.makedirs(log_dir, exist_ok=True)
+    fh = logging.FileHandler(os.path.join(log_dir, "entailment_scoring.log"))
+    fh.setLevel(logging.DEBUG)
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+    logger.setLevel(logging.DEBUG)
 
 
 def load_entailment_model(cfg: dict):
@@ -33,12 +51,14 @@ def load_entailment_model(cfg: dict):
     model_name = cfg["paths"]["entailment_model"]
     cache_dir = cfg["paths"]["hf_cache"]
 
+    logger.info("Loading entailment tokenizer: %s", model_name)
     print(f"  Loading entailment tokenizer: {model_name}...")
     # use_fast=False: transformers 5.x auto-conversion tries to parse spm.model
     # as tiktoken BPE, which crashes. The slow DebertaV2Tokenizer works correctly.
     # See: https://github.com/huggingface/transformers/issues/42583
     tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir, use_fast=False)
 
+    logger.info("Loading entailment model: %s", model_name)
     print(f"  Loading entailment model: {model_name}...")
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name, cache_dir=cache_dir, dtype=torch.float16
@@ -46,14 +66,16 @@ def load_entailment_model(cfg: dict):
     model.eval()
     if torch.cuda.is_available():
         model = model.cuda()
-    print(f"  Entailment model loaded on {next(model.parameters()).device}")
+    device = next(model.parameters()).device
+    logger.info("Entailment model loaded on %s", device)
+    print(f"  Entailment model loaded on {device}")
     return model, tokenizer
 
 
 def _batch_nli(model, tokenizer, pairs: list[tuple[str, str]], batch_size: int) -> list[dict]:
     """Run NLI on a list of (premise, hypothesis) pairs in batches.
 
-    Returns list of dicts with 'logits', 'probs', 'argmax' for each pair.
+    Returns list of dicts with 'probs', 'argmax' for each pair.
     """
     results = []
     device = next(model.parameters()).device
@@ -92,6 +114,11 @@ def score_correctness(
     entail_score: P(entailment) — continuous, used for conformal threshold.
     entail_label: 1 if argmax is ENTAILMENT, else 0.
     """
+    if not greedy_answer or not reference_answer:
+        logger.warning("Empty answer in correctness scoring: greedy='%s', ref='%s'",
+                        greedy_answer[:50], reference_answer[:50])
+        return 0.0, 0
+
     results = _batch_nli(model, tokenizer, [(greedy_answer, reference_answer)], batch_size)
     r = results[0]
     entail_score = r["probs"][ENTAILMENT_IDX]
@@ -114,12 +141,18 @@ def score_self_consistency(
     if K <= 1:
         return 1.0, [[True]]
 
+    # Filter out empty answers
+    non_empty = [(i, a) for i, a in enumerate(sampled_answers) if a.strip()]
+    if len(non_empty) <= 1:
+        logger.warning("Only %d non-empty sampled answers out of %d", len(non_empty), K)
+        return 0.0, [[False] * K for _ in range(K)]
+
     # Build all ordered pairs (i→j) for the full KxK matrix
     pairs = []
     pair_indices = []
     for i in range(K):
         for j in range(K):
-            if i != j:
+            if i != j and sampled_answers[i].strip() and sampled_answers[j].strip():
                 pairs.append((sampled_answers[i], sampled_answers[j]))
                 pair_indices.append((i, j))
 
@@ -157,27 +190,58 @@ def score_and_cache(
     Returns:
         List of entailment score dicts (one per question).
     """
+    _setup_file_logger(cfg.get("log_dir", "logs"))
+
     cache_path = get_cache_path(cfg["paths"]["cache_dir"], f"{dataset_name}_entailment")
     batch_size = cfg["entailment"]["batch_size"]
+    save_every = 200
+
+    logger.info("=" * 60)
+    logger.info("[%s] Entailment scoring started — model=%s, questions=%d, batch_size=%d",
+                dataset_name.upper(), cfg["paths"]["entailment_model"], len(records), batch_size)
+
+    # Validate inputs
+    if len(records) != len(generations):
+        msg = (f"records ({len(records)}) and generations ({len(generations)}) length mismatch "
+               f"for {dataset_name}")
+        logger.error(msg)
+        raise ValueError(msg)
 
     cached = load_cache(cache_path)
     if cached is not None and len(cached) == len(records):
-        print(f"  {dataset_name.upper()}: all {len(cached)} entailment scores cached, skipping")
+        msg = f"{dataset_name.upper()}: all {len(cached)} entailment scores cached, skipping"
+        logger.info(msg)
+        print(f"  {msg}")
         return cached
 
     results = cached if cached is not None else []
     start_idx = len(results)
 
     if start_idx > 0:
-        print(f"  {dataset_name.upper()}: resuming entailment from question {start_idx}/{len(records)}")
+        msg = f"{dataset_name.upper()}: resuming entailment from question {start_idx}/{len(records)}"
+        logger.info(msg)
+        print(f"  {msg}")
     else:
-        print(f"  {dataset_name.upper()}: scoring {len(records)} questions")
+        msg = f"{dataset_name.upper()}: scoring {len(records)} questions"
+        logger.info(msg)
+        print(f"  {msg}")
 
     model, tokenizer = load_entailment_model(cfg)
+
+    # Log GPU memory
+    if torch.cuda.is_available():
+        mem_alloc = torch.cuda.memory_allocated() / 1e9
+        mem_total = torch.cuda.get_device_properties(0).total_memory / 1e9
+        logger.info("[%s] GPU memory: %.1f / %.1f GB", dataset_name.upper(), mem_alloc, mem_total)
+
+    t_start = time.time()
+    total_nli_pairs = 0
+    n_correct = 0
 
     for i in range(start_idx, len(records)):
         rec = records[i]
         gen = generations[i]
+        t_q = time.time()
 
         # Correctness: greedy → reference
         entail_score, entail_label = score_correctness(
@@ -185,9 +249,15 @@ def score_and_cache(
         )
 
         # Self-consistency: pairwise among K sampled answers
+        K = len(gen["sampled_answers"])
         fM2, pairwise = score_self_consistency(
             model, tokenizer, gen["sampled_answers"], batch_size
         )
+
+        elapsed_q = time.time() - t_q
+        nli_pairs_q = 1 + K * (K - 1)  # 1 correctness + K*(K-1) directed pairs
+        total_nli_pairs += nli_pairs_q
+        n_correct += entail_label
 
         results.append({
             "idx": rec["idx"],
@@ -197,14 +267,48 @@ def score_and_cache(
             "pairwise_entailments": pairwise,
         })
 
+        # Log every question at DEBUG
+        logger.debug("[%s] idx=%d  correct=%d  entail_p=%.3f  fM2=%.2f  "
+                     "nli_pairs=%d  time=%.2fs  greedy='%s'  ref='%s'",
+                     dataset_name.upper(), rec["idx"], entail_label, entail_score, fM2,
+                     nli_pairs_q, elapsed_q,
+                     gen["greedy_answer"][:60], rec["reference_answer"][:60])
+
+        # Progress every 100 questions
         if (i + 1) % 100 == 0 or i == len(records) - 1:
-            print(f"    [{dataset_name.upper()}] {i+1}/{len(records)}: "
-                  f"correct={entail_label}, fM2={fM2:.2f}, "
-                  f"entail_p={entail_score:.3f}")
+            elapsed_total = time.time() - t_start
+            done = i + 1 - start_idx
+            rate = done / elapsed_total if elapsed_total > 0 else 0
+            eta_min = (len(records) - i - 1) / rate / 60 if rate > 0 else 0
+            acc_so_far = n_correct / (i + 1) * 100
+
+            progress_msg = (f"[{dataset_name.upper()}] {i+1}/{len(records)}: "
+                            f"correct={entail_label}, fM2={fM2:.2f}, "
+                            f"entail_p={entail_score:.3f}")
+            print(f"    {progress_msg}")
+
+            logger.info("[%s] progress=%d/%d  accuracy=%.1f%%  rate=%.1f q/s  "
+                        "eta=%.1f min  total_nli_pairs=%d",
+                        dataset_name.upper(), i + 1, len(records), acc_so_far,
+                        rate, eta_min, total_nli_pairs)
 
         # Save every 200 questions
-        if (i + 1) % 200 == 0 or i == len(records) - 1:
+        if (i + 1) % save_every == 0 or i == len(records) - 1:
             save_cache(results, cache_path)
+            logger.info("[%s] checkpoint saved: %d/%d to %s",
+                        dataset_name.upper(), len(results), len(records), cache_path)
 
-    print(f"  {dataset_name.upper()}: entailment scoring complete ({len(results)} questions)")
+    elapsed_total = time.time() - t_start
+    final_accuracy = n_correct / len(records) * 100 if len(records) > 0 else 0
+
+    logger.info("[%s] Entailment scoring complete: %d questions in %.1f min",
+                dataset_name.upper(), len(results), elapsed_total / 60)
+    logger.info("[%s] Accuracy (entailment): %d/%d = %.1f%%",
+                dataset_name.upper(), n_correct, len(records), final_accuracy)
+    logger.info("[%s] Total NLI pairs evaluated: %d", dataset_name.upper(), total_nli_pairs)
+
+    print(f"  {dataset_name.upper()}: entailment scoring complete "
+          f"({len(results)} questions, {elapsed_total/60:.1f} min, "
+          f"accuracy={final_accuracy:.1f}%)")
+
     return results

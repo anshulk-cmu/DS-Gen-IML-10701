@@ -9,7 +9,7 @@ Key formulas:
   - Selection modes: fM1 only, fM2 only, or fM1 AND fM2
 
 Calibration dataset is configurable (default: TQA, which has higher correctness and
-stronger feature-correctness correlation than NQ for LLaMA-3.1-8B-Instruct).
+stronger feature-correctness correlation than NQ for GPT-4o-mini).
 """
 
 import numpy as np

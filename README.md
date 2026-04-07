@@ -11,7 +11,7 @@ This project implements and extends the SGen-Semi algorithm from [Lee et al., "S
 
 Can a selective generation system for LLMs maintain provable PAC guarantees on its false discovery rate even when test queries come from a different domain than the calibration data?
 
-SGen's FDR-E guarantee holds in-domain (NQ validity rate ~98%) but is expected to **break under domain shift** (TriviaQA validity rate drops), because the calibration distribution no longer matches the deployment distribution. This project first demonstrates this failure, then proposes DS-SGen to fix it.
+SGen's FDR-E guarantee holds in-domain (TQA validity rate = 100%) but **breaks under domain shift** (NQ validity rate = 12.4%), because the calibration distribution no longer matches the deployment distribution. This project demonstrates this failure, then proposes DS-SGen to fix it.
 
 ---
 
@@ -135,30 +135,32 @@ The codebase implements three methods for selective generation under domain shif
 
 - **Method 1 (Vanilla SGen-Semi):** Baseline with no shift handling. Demonstrates the PAC guarantee breaking under domain shift.
 - **Method 2 (Conservative Threshold):** Three naive domain-shift fixes (safety factor, reduced epsilon, delta budget). Shows that ad-hoc conservatism cannot restore guarantees without severe efficiency loss.
-- **Method 3 (DS-SGen with Importance Reweighting):** The core contribution. Uses embedding-based density ratio estimation to reweight calibration samples, restoring PAC guarantees under covariate shift.
-- **Epsilon Sweep:** Runs all three methods at epsilon = {0.25, 0.30, 0.35, 0.40} to produce the headline figure — validity vs. epsilon for each method.
+- **Method 3 (DS-SGen with Importance Reweighting):** The core contribution. Uses embedding-based density ratio estimation to reweight calibration samples, attempting to restore PAC guarantees under domain shift. Results show the method correctly detects infeasibility but cannot fix concept shift.
+- **Epsilon Sweep:** Runs all three methods at epsilon = {0.25, 0.30, 0.35, 0.40} to characterize validity-epsilon tradeoffs across methods.
+
+**Generator:** GPT-4o-mini via OpenAI API.
 
 ### Pipeline
 
 ```
-Questions --> LLaMA-3.1-8B-Instruct --> Greedy answer + K=5 sampled answers
-                                              |
-                     +------------------------+
-                     |
-              DeBERTa-v2-xxlarge-mnli (NLI)
-                     |
-           +---------+----------+
-           |                    |
-     fM1: mean log-prob    fM2: self-consistency
-     (generation confidence)  (semantic agreement)
-           |                    |
-           +---------+----------+
-                     |
-              SGen-Semi Algorithm
-              (conformal calibration + PAC-FDR threshold selection)
-                     |
-              Select: answer if fM1 >= tau1 AND fM2 >= tau2
-              Abstain: otherwise
+Questions --> GPT-4o-mini (OpenAI API) --> Greedy answer + K=5 sampled answers
+                                                       |
+                          +----------------------------+
+                          |
+                   DeBERTa-v2-xxlarge-mnli (NLI)
+                          |
+                +---------+----------+
+                |                    |
+          fM1: mean log-prob    fM2: self-consistency
+          (generation confidence)  (semantic agreement)
+                |                    |
+                +---------+----------+
+                          |
+                   SGen-Semi Algorithm
+                   (conformal calibration + PAC-FDR threshold selection)
+                          |
+                   Select: answer if fM1 >= tau1 AND fM2 >= tau2
+                   Abstain: otherwise
 ```
 
 ### How Each Code Module Maps to the Papers
@@ -166,10 +168,10 @@ Questions --> LLaMA-3.1-8B-Instruct --> Greedy answer + K=5 sampled answers
 | Module | Paper Section | What It Implements |
 |--------|-------------|-------------------|
 | `data_loading.py` | SGen Sec. 4 (Datasets) | NQ-Open + TriviaQA download, normalization, caching |
-| `generate_responses.py` | SGen Sec. 3.1 (fM1) + Sec. 3.2 (Sampling) | Greedy decoding with per-token log-probs (fM1 = mean log-prob) + K=5 temperature sampling for self-consistency |
+| `generate_responses.py` | SGen Sec. 3.1 (fM1) + Sec. 3.2 (Sampling) | GPT-4o-mini via OpenAI API: greedy with logprobs (fM1 = mean log-prob) + K=5 temperature sampling for self-consistency |
 | `entailment_scoring.py` | SGen Sec. 2 (Entailment) + Sec. 3.2 (fM2) | Unidirectional NLI for correctness (greedy -> reference, argmax == ENTAILMENT) + Bidirectional NLI for self-consistency (all C(K,2) pairs, both directions must entail) |
 | `sgen_semi.py` | SGen Algorithm 2 + Theorem 1 | Conformal threshold from Z_E (Eq. 3), pseudo-labeling Z_U, Clopper-Pearson upper bound with Bonferroni correction (delta_adj = (delta - delta_p) / \|H\|), grid search over (tau1, tau2) |
-| `run_baseline.py` | SGen Sec. 4 (Experiments) | Staged orchestrator with 100 random splits, evaluates NQ-test (in-domain) vs. TriviaQA (shifted) |
+| `run_baseline.py` | SGen Sec. 4 (Experiments) | Staged orchestrator with 500 random splits, evaluates NQ-test (in-domain) vs. TriviaQA (shifted) |
 | `conservative.py` | Method 2: Conservative Threshold | Three naive domain-shift fixes: (A) safety factor on tau, (B) reduced epsilon, (C) delta budget allocation |
 | `run_conservative.py` | Method 2 orchestrator | Loads cached Stages 1-3, runs conservative parameter sweeps (CPU-only, no GPU needed) |
 | `importance_weighted.py` | DS-CP + Weighted CP | Embedding, domain classifier, density ratio weights, weighted conformal threshold, weighted Clopper-Pearson bounds |
@@ -179,7 +181,7 @@ Questions --> LLaMA-3.1-8B-Instruct --> Greedy answer + K=5 sampled answers
 
 ### Scoring Functions — Paper-to-Code Mapping
 
-**fM1 (mean log-probability):** `generate_responses.py:_extract_logprobs_from_scores()` computes per-token log-probs from the `output_logits` of greedy decoding. The mean across all generated tokens is the fM1 score. Higher = model is more confident. This corresponds to SGen's "conditional probability" scoring function.
+**fM1 (mean log-probability):** `generate_responses.py` extracts per-token log-probs from the OpenAI API response (`logprobs=True` on greedy calls). The mean across all generated tokens is the fM1 score. Higher = model is more confident. This corresponds to SGen's "conditional probability" scoring function.
 
 **fM2 (self-consistency):** `entailment_scoring.py:score_self_consistency()` generates K=5 samples, runs all K*(K-1) directed NLI pairs through DeBERTa, then counts unordered pairs where BOTH directions have argmax == ENTAILMENT. fM2 = (agreeing pairs) / C(K,2). This implements the "semantic clustering" approach from SGen, similar to Kuhn et al.'s semantic uncertainty (Nature 2024).
 
@@ -187,7 +189,7 @@ Questions --> LLaMA-3.1-8B-Instruct --> Greedy answer + K=5 sampled answers
 
 ### SGen-Semi Algorithm — Detailed Code Walkthrough
 
-In `sgen_semi.py:_run_single_split()`, each of the 100 splits executes:
+In `sgen_semi.py:_run_single_split()`, each of the 500 splits executes:
 
 1. **Split NQ** (line 98-104): Random permutation, 70% calibration / 30% test
 2. **Split calibration** (line 107-109): 75% Z_U (unlabeled) / 25% Z_E (labeled)
@@ -200,9 +202,13 @@ In `sgen_semi.py:_run_single_split()`, each of the 100 splits executes:
    - Keep the pair with highest efficiency where the bound <= epsilon
 6. **Evaluate** (line 154-177): Apply learned thresholds to NQ-test and full TriviaQA
 
-### Key Hypothesis
+### Key Findings
 
-SGen's FDR-E guarantee holds in-domain (NQ validity rate ~98%) but **breaks under domain shift** (TriviaQA validity rate drops), because the calibration distribution no longer matches the deployment distribution. This is the fundamental limitation of the i.i.d. assumption.
+1. **SGen's guarantee breaks under domain shift:** TQA validity = 100% but NQ validity = 12.4% — the i.i.d. assumption fails when calibration and test distributions differ.
+2. **Conservative adjustments help minimally:** Method 2's best variant improves NQ validity from 12.4% to 22.0% — insufficient for deployment.
+3. **Importance reweighting detects infeasibility but cannot fix concept shift:** Method 3 achieves 68.8% NQ validity, but entirely through abstention (344/500 vacuous splits). 0/156 non-vacuous splits are valid.
+4. **TQA → NQ is a domain change, not a domain shift:** 91.7% classifier accuracy and 27.7pp accuracy gap prove the domains are fundamentally different, not shifted versions of each other. No calibration-time method can fix this.
+5. **Validity decreases with higher epsilon** (counterintuitively) because higher epsilon removes the abstention floor, exposing the systematic failure of TQA-calibrated thresholds on NQ.
 
 ---
 
@@ -220,15 +226,15 @@ SGen's FDR-E guarantee holds in-domain (NQ validity rate ~98%) but **breaks unde
 
 ## Models
 
-| Model | Purpose | Size | VRAM (fp16) |
-|-------|---------|------|-------------|
-| [LLaMA-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) | Response generation (greedy + sampled) | 8B params | ~16GB |
-| [DeBERTa-v2-xxlarge-mnli](https://huggingface.co/microsoft/deberta-v2-xxlarge-mnli) | NLI entailment scoring | 1.5B params | ~6GB |
+| Model | Purpose | Notes |
+|-------|---------|-------|
+| GPT-4o-mini (OpenAI API) | Response generation (greedy + sampled) | Logprobs supported; ~$0.05 per session (~$0.25 total across 5 sessions) |
+| [DeBERTa-v2-xxlarge-mnli](https://huggingface.co/microsoft/deberta-v2-xxlarge-mnli) | NLI entailment scoring | 1.5B params, ~6GB VRAM |
 
 **DeBERTa label order: `{0: CONTRADICTION, 1: NEUTRAL, 2: ENTAILMENT}`**
 (Different from cross-encoder/nli-deberta-v3-large which has entailment at index 1)
 
-LLaMA is loaded locally from `/data/user_data/anshulk/dsgen/model_cache/Llama-3.1-8B-Instruct/` -- no runtime download. DeBERTa downloads to the same cache on first use.
+GPT-4o-mini exposes logprobs for the fM1 confidence score via the API. Generation makes two calls per question (greedy+logprobs, n=5 sampled), with results cached incrementally.
 
 ## Hyperparameters
 
@@ -243,9 +249,9 @@ All parameters validated against the SGen paper and upstream code at [ml-postech
 | K (sampled responses) | 5 | Paper default; Kuhn et al. confirm diminishing returns past 5 | Number of samples for fM2 self-consistency |
 | cal_frac (calibration fraction) | 0.70 | 70% calibration, 30% in-domain test | Data split ratio |
 | zu_frac (unlabeled fraction) | 0.75 | 75% Z_U, 25% Z_E within calibration | Semi-supervised split ratio |
-| n_splits (random splits) | 100 | Paper standard | Repeated experiments for validity estimation |
+| n_splits (random splits) | 500 | SE ≈ 0.021 at p=0.35 for tight method comparison | Repeated experiments for validity estimation |
 | n_grid (threshold grid points) | 20 | Percentile-based; \|H\|=20 for fm1_only mode | Bonferroni correction divides delta by \|H\| |
-| cal_dataset | "tqa" | Higher correctness (61.2% vs 40.2%) | Calibrate on TQA, test on NQ |
+| cal_dataset | "tqa" | Higher correctness expected | Calibrate on TQA, test on NQ |
 | selection_mode | "fm1_only" | 1D threshold; \|H\|=20 not 400 | Less Bonferroni penalty |
 | embedding_model | all-MiniLM-L6-v2 | DS-CP (Lin et al., 2025) | 384-dim sentence embeddings for density ratio |
 | classifier_C | 1.0 | Default regularization | Logistic regression for domain classification |
@@ -261,12 +267,12 @@ ds-gen-10701/
 │   ├── __init__.py
 │   ├── utils.py                    # Config loading, seed, atomic JSON caching
 │   ├── data_loading.py             # NQ-Open + TriviaQA: download, normalize, cache
-│   ├── generate_responses.py       # LLaMA chat-template generation: greedy (fM1) + sampled (K=5)
+│   ├── generate_responses.py       # GPT-4o-mini via OpenAI API: greedy (fM1) + sampled (K=5)
 │   ├── entailment_scoring.py       # DeBERTa NLI: correctness + self-consistency (fM2)
 │   ├── sgen_semi.py                # SGen-Semi: conformal, Clopper-Pearson, Bonferroni, grid search
 │   ├── conservative.py             # Method 2: Conservative Threshold (3 options for naive shift fix)
 │   └── importance_weighted.py      # Method 3: DS-SGen (embeddings, domain classifier, weighted CP)
-├── run_baseline.py                 # Staged orchestrator (--stage data|generate|entailment|sgen|all)
+├── run_baseline.py                 # Staged orchestrator: OpenAI generation + local entailment + SGen
 ├── run_conservative.py             # Method 2 orchestrator (loads cached Stages 1-3, CPU-only)
 ├── run_importance_weighted.py      # Method 3 orchestrator (loads cached Stages 1-3, GPU for embeddings)
 ├── run_epsilon_sweep.py            # Epsilon sweep: all 3 methods at eps={0.25, 0.30, 0.35, 0.40}
@@ -278,10 +284,8 @@ ds-gen-10701/
 │   ├── method2_conservative_analysis.md
 │   └── method3_importance_weighted_analysis.md
 ├── scripts/
-│   ├── check_gpu.sh                # SLURM GPU sanity check (preempt, A6000)
-│   ├── run_gpu.sh                  # SLURM full baseline pipeline (preempt, A6000, 48GB mem)
-│   ├── run_conservative.sh         # SLURM Method 2: conservative threshold sweep
-│   └── run_method3.sh              # SLURM Method 3 + epsilon sweep (GPU for embeddings)
+│   ├── run_entailment.sh           # SLURM entailment scoring (general, 1 GPU, 2-day limit)
+│   └── run_method1.sh              # SLURM full Method 1: entailment + SGen + plots
 ├── logs/                           # SLURM .out/.err files
 ├── cache/ -> /data/.../cache       # Symlink: cached JSON for each pipeline stage
 ├── results/ -> /data/.../results   # Symlink: final experiment outputs
@@ -290,45 +294,39 @@ ds-gen-10701/
 
 ## Storage Layout
 
-| What | Where | Size |
-|------|-------|------|
-| Code, logs, plots, README | `/home/anshulk/ds-gen-10701/` | ~1MB |
-| Conda env (`dsgen`, Python 3.10) | `/data/user_data/anshulk/envs/dsgen/` | 5.8GB |
-| LLaMA-3.1-8B-Instruct weights | `/data/user_data/anshulk/dsgen/model_cache/` | 30GB |
-| Pipeline caches (JSON) | `/data/user_data/anshulk/dsgen/cache/` | ~50MB per dataset |
-| Experiment results | `/data/user_data/anshulk/dsgen/results/` | ~5MB |
+| What | Where | Size (actual) |
+|------|-------|---------------|
+| Code, logs, plots, README | `/home/anshulk/ds-gen-10701/` | ~4 MB |
+| Pipeline caches (JSON) | `/data/user_data/anshulk/dsgen/cache/` | ~60 MB total (nq_data 0.8MB, tqa_data 4.2MB, nq_gen 18.9MB, tqa_gen 29.5MB, nq_ent 2.1MB, tqa_ent 4.2MB) |
+| Experiment results | `/data/user_data/anshulk/dsgen/results/` | All methods complete (baseline, conservative, importance_weighted, epsilon_sweep) |
+| DeBERTa model cache | `/data/user_data/anshulk/dsgen/model_cache/` | ~6GB |
 
-`cache/` and `results/` in the project root are symlinks to `/data/...` -- gitignored so heavy files never enter the repo.
+`cache/` and `results/` in the project root are symlinks to `/data/...` -- gitignored so heavy files never enter the repo. OpenAI API key stored in `.env` (gitignored).
 
 ## Running
 
 ```bash
-# Activate environment
-conda activate /data/user_data/anshulk/envs/dsgen
+# Set OpenAI API key (or use .env file)
+export OPENAI_API_KEY=sk-...
 
-# Full baseline pipeline via SLURM (preempt partition, 1x A6000)
-sbatch scripts/run_gpu.sh
+# Full pipeline (stages can be run individually):
+python run_baseline.py --config configs/default.yaml                # all stages
+python run_baseline.py --config configs/default.yaml --stage data   # Stage 1 only
+python run_baseline.py --config configs/default.yaml --stage generate  # Stage 2 (needs API key)
+python run_baseline.py --config configs/default.yaml --stage sgen   # Stage 4 (needs Stages 1-3)
 
-# Or run specific stages
-python run_baseline.py --stage data         # Download and cache datasets only
-python run_baseline.py --stage generate     # Data + LLM generation
-python run_baseline.py --stage entailment   # Data + generation + NLI scoring
-python run_baseline.py --stage sgen         # Full pipeline including SGen-Semi
-python run_baseline.py                      # Same as --stage all
+# Entailment scoring via SLURM (Stage 3, needs GPU):
+sbatch scripts/run_entailment.sh
 
-# Method 2: Conservative Threshold (requires cached Stages 1-3 from baseline)
-sbatch scripts/run_conservative.sh
-# Or run directly (CPU-only, completes in minutes):
+# Method 2: Conservative Threshold (requires cached Stages 1-3)
 python run_conservative.py --config configs/default.yaml
 
 # Method 3: DS-SGen + Epsilon Sweep (requires cached Stages 1-3 + GPU for embeddings)
-sbatch scripts/run_method3.sh
-# Or run steps individually:
-python run_importance_weighted.py --config configs/default.yaml   # Method 3 standalone
-python run_epsilon_sweep.py --config configs/default.yaml         # All methods at 4 epsilon values
+python run_importance_weighted.py --config configs/default.yaml
+python run_epsilon_sweep.py --config configs/default.yaml
 ```
 
-Every stage caches its output as JSON. If a SLURM job is preempted, resubmit -- it resumes from the last cached checkpoint (saves every 50 questions for generation, every 200 for entailment). Embeddings are cached to `.npy` files after first compute.
+Every stage caches its output as JSON with incremental saves (every 50 questions). If interrupted, rerun and it resumes from the last checkpoint. Entailment scoring requires a GPU (DeBERTa) and can run via SLURM.
 
 ```bash
 # Generate plots (runs incrementally — only plots data that exists)
@@ -343,74 +341,82 @@ python plot_results.py --stage epsilon_sweep    # Validity vs epsilon (headline 
 
 Plots are saved to `plots/` as 300 DPI PNGs.
 
-## Runtime Estimates (1x NVIDIA RTX A6000, 48GB)
+## Runtime (Actual, Validated)
 
-| Stage | Time | VRAM | Notes |
-|-------|------|------|-------|
-| Data loading | ~2 min | CPU | TriviaQA nocontext = 633MB download |
-| LLM generation (2 x 3,610 questions) | ~48 hours | ~16GB | Greedy + K=5 sampled per question; ~24h per dataset |
-| Entailment scoring (~185K NLI calls) | ~3-5 min | ~6GB | Batch size 64 |
-| SGen-Semi (100 splits) | ~30 sec | CPU | Pure numpy/scipy |
-| Method 2: Conservative (100 splits x 4 options) | ~2 min | CPU | CPU-only, no GPU |
-| Method 3: Embedding (2 x 3,610 questions) | ~2 min | ~1GB | all-MiniLM-L6-v2, cached to .npy |
-| Method 3: Domain classifier + weights | ~5 sec | CPU | Logistic regression + 5-fold CV |
-| Method 3: Weighted SGen-Semi (100 splits) | ~1 min | CPU | Weighted conformal + weighted CP bounds |
-| Epsilon sweep (3 methods x 4 epsilons x 100 splits) | ~5 min | CPU | Reuses pre-computed weights |
-| **Total (first run)** | **~48-50 hours** | | Dominated by LLM generation |
-| **Total (from cache, Methods 2-3 + sweep)** | **~10 min** | | With cached Stages 1-3 + embeddings |
+| Stage | Actual Time | Notes |
+|-------|-------------|-------|
+| Data loading | ~2 sec | TriviaQA nocontext cached after first 633MB download |
+| NQ generation (3,610 Qs) | **109.3 min** | GPT-4o-mini, 0.6 q/s, 232K prompt + 510K completion tokens |
+| TQA generation (3,610 Qs) | **~18 hrs wall clock** | 5 sessions due to 10K RPD rate limit; ~18 min effective in final session |
+| NQ entailment scoring | **4.8 min** | DeBERTa-v2-xxlarge-mnli, 12.6 q/s, 75,810 NLI pairs, L40S GPU |
+| TQA entailment scoring | **9.0 min** | 13.4 q/s, 151,620 NLI pairs, L40S GPU |
+| SGen-Semi (500 splits) | **6 sec** | CPU, pure numpy/scipy |
+| Method 2: Conservative (500 splits x 4 options) | ~10 min | CPU-only |
+| Method 3: Embedding + classifier + weighted SGen | **12.2 sec** | all-MiniLM-L6-v2 + logistic regression, CPU |
+| Epsilon sweep (3 methods x 4 epsilons x 500 splits) | **28.4 sec** | CPU, reuses pre-computed weights |
+| **Total (Stages 1-3, first run)** | **~14 min compute + ~18 hrs API wait** | Dominated by OpenAI daily rate limit |
+| **Total (from cache, Methods 1-3 + sweep)** | **~12 min** | With cached Stages 1-3 |
 
-## Pipeline Status (Updated 2026-04-04)
+## Pipeline Status (Updated 2026-04-06)
 
 | Stage | NQ (3,610 Qs) | TQA (3,610 Qs) | Status |
 |-------|---------------|----------------|--------|
-| 1. Data loading | 3,610 cached | 3,610 cached | **Complete** |
-| 2. LLM generation | 3,610 cached | 3,610 cached | **Complete** |
-| 3. Entailment scoring | 3,610 cached | 3,610 cached | **Complete** |
-| 4. Method 1: SGen-Semi (100 splits) | -- | -- | **Complete** (job 6952802) |
-| 5. Method 2: Conservative (100 splits x 4 options) | -- | -- | **Complete** (job 6952802) |
-| 6. Method 3: DS-SGen (importance reweighting) | -- | -- | **Code complete, awaiting run** |
-| 7. Epsilon sweep (3 methods x 4 epsilons) | -- | -- | **Code complete, awaiting run** |
+| 1. Data loading | 3,610 cached (792 KB) | 3,610 cached (2.1 MB) | **Complete** |
+| 2. GPT-4o-mini generation | 3,610 (19 MB) | 3,610 (~15 MB) | **Complete** |
+| 3. Entailment scoring | 3,610 (2.1 MB, 4.8 min) | 3,610 (~2.1 MB, 9.0 min) | **Complete** |
+| 4. Method 1: SGen-Semi (500 splits) | NQ validity: 12.4% | TQA validity: 100% | **Complete** |
+| 5. Method 2: Conservative (500 splits x 4 options) | Best NQ validity: 22.0% | TQA validity: 100% | **Complete** |
+| 6. Method 3: DS-SGen (importance reweighting, 500 splits) | NQ validity: 68.8% (vacuous) | TQA validity: 100% | **Complete** |
+| 7. Epsilon sweep (3 methods x 4 epsilons x 500 splits) | No method reaches 98% | All TQA: 100% | **Complete** |
 
-### Results from Clean Run (SLURM Job 6952802)
+### Stages 1-3: Validated Results Summary
 
-**Method 1 (Vanilla SGen-Semi):** PAC guarantee breaks under domain shift.
+**Generation (GPT-4o-mini, completed 2026-04-06):**
 
-| Metric | TQA (in-domain) | NQ (shifted) |
-|--------|-----------------|--------------|
-| Validity rate | 100% | 29% |
-| Mean FDR-E | 0.0770 | 0.3020 |
-| Mean efficiency | 27.6% | 16.3% |
+|                | NQ (3,610)  | TQA (3,610) |
+|----------------|-------------|-------------|
+| Mean fM1       | -0.0882     | -0.0577     |
+| Median fM1     | -0.0718     | -0.0393     |
+| Min / Max fM1  | -0.4019 / -0.0000 | -0.5524 / -0.0000 |
+| Mean answer length | 102 chars  | 79 chars    |
+| Samples per Q  | 5           | 5           |
 
-**Method 2 (Conservative Threshold):** Best result is Option C (delta budget frac=0.75).
+**Entailment (DeBERTa-v2-xxlarge-mnli on L40S, completed 2026-04-06):**
 
-| Metric | TQA (in-domain) | NQ (shifted) |
-|--------|-----------------|--------------|
-| Validity rate | 100% | 41% |
-| Mean FDR-E | 0.0458 | 0.2722 |
-| Mean efficiency | 12.1% | 12.1% |
+|                      | NQ (3,610) | TQA (3,610) |
+|----------------------|-----------|-------------|
+| **Correctness rate** | **43.1%** (1,556/3,610) | **70.8%** (2,557/3,610) |
+| Mean entail_score    | 0.3646    | 0.5511      |
+| Mean fM2             | 0.5419    | 0.7271      |
+| fM1↔correctness (r) | 0.3185    | 0.3402      |
+| fM2↔correctness (r) | 0.3483    | 0.3596      |
 
-Options A (safety factor) and B (reduced epsilon) collapse to 0% efficiency at any non-trivial conservatism level.
+**Key observations:**
+- TQA has 66% higher correctness than NQ (70.8% vs 43.1%) — the core domain shift
+- TQA has higher confidence (fM1 mean -0.058 vs -0.088) and higher self-consistency (fM2 mean 0.73 vs 0.54)
+- Feature-correctness correlations are moderate (r ≈ 0.32-0.36) — sufficient for threshold selection but not perfect
+- TQA-calibrated thresholds applied to NQ are too lenient, causing the PAC guarantee to break
 
-### Key Diagnostic Data
+**Method 1 Results (SGen-Semi Baseline, 500 splits, epsilon=0.25, delta=0.02):**
 
-| Metric | TQA (calibration) | NQ (shifted test) |
-|--------|-------------------|-------------------|
-| Overall correctness | 61.2% | 40.2% |
-| Mean fM1 (log-prob) | -0.181 | -0.226 |
-| Corr(fM1, correct) | 0.448 | 0.358 |
-| Top 5% by fM1: accuracy | ~85% | 69.4% |
+|                    | TQA (in-domain) | NQ (shifted) |
+|--------------------|----------------|-------------|
+| **Validity rate**  | **100.00%**    | **12.4%**   |
+| Mean FDR-E         | 0.1472 ± 0.0186 | 0.3015 ± 0.1176 |
+| Mean efficiency    | 0.4078 ± 0.0831 | 0.2287 ± 0.1090 |
 
-**Critical finding:** NQ top 5% by fM1 is only 69.4% correct. eps=0.25 requires 75%+. This means eps=0.25 is *mathematically infeasible* on NQ regardless of algorithm — motivating the epsilon sweep.
+The PAC guarantee holds perfectly in-domain (100% validity on TQA) but breaks under domain shift (12.4% validity on NQ — only 62 out of 500 splits satisfy FDR-E ≤ 0.25, all via abstention). This is the motivating failure that Methods 2 and 3 aim to address.
 
-### Job History
+**Example answers across categories:**
 
-| Job ID | Partition | Duration | Outcome |
-|--------|-----------|----------|---------|
-| 6942461 | preempt | 5 sec | GPU check passed (A6000, CUDA 12.4) |
-| 6943087 | preempt | ~2 min | Failed (config/import issues, fixed) |
-| 6943094 | preempt | ~4 hours | NQ complete, TQA 2350/3610 — killed: 48h time limit |
-| 6951565 | preempt | ~44 hours | Completed: TQA generation + all entailment |
-| 6952802 | preempt | ~5 min | Clean run: Methods 1 + 2 (100 splits each) |
+| Category | Question | Answer | fM1 | Correct? |
+|----------|----------|--------|-----|----------|
+| True positive (high conf, correct) | "Who played Dr Kimble in The Fugitive?" | "Harrison Ford" | -0.0001 | Yes (entail_p=0.81) |
+| True negative (low conf, wrong) | "to aru kagaku no railgun s episode 3" | "Misaka Mikoto investigates..." | -0.4019 | No (entail_p=0.01) |
+| False positive (high conf, wrong) | "who is the coach for the ottawa senators" | "DJ Smith" (outdated) | -0.0071 | No (entail_p=0.00) |
+| False negative (low conf, correct) | "time setting of game of thrones" | "medieval-like world" | -0.3344 | Yes (entail_p=0.50) |
+| Consistent but wrong (high fM2, wrong) | "Which club won Scottish league cup..." | "Celtic" (answer: East Fife) | -0.0172 | No (fM2=1.0) |
+| Correct but inconsistent (low fM2, correct) | "What does DSM-IV define as..." | "Voyeuristic Disorder" | -0.1636 | Yes (fM2=0.0) |
 
 ## Environment
 
@@ -428,11 +434,13 @@ Conda env `dsgen` (Python 3.10):
 | scikit-learn | 1.7.2 |
 | matplotlib | 3.10.8 |
 
-GPU verified: NVIDIA RTX A6000, CUDA 12.4, PyTorch compute test passed.
+GPU tested: NVIDIA L40S (46 GB VRAM), CUDA 12.4, PyTorch 2.6.0. DeBERTa-v2-xxlarge-mnli uses 3.1 GB VRAM at batch=64 with float16.
 
 ## SLURM Notes
 
-All jobs use `--partition=preempt` with `--requeue` and a 7-day wall time, since we are at the 8-GPU regular allocation limit. The preempt partition provides A6000 GPUs but jobs may be interrupted. The incremental caching system ensures no work is lost on preemption — generation saves every 50 questions, entailment every 200.
+Entailment scoring runs on `--partition=general` with 1 GPU, `--time=2-00:00:00`. Actual runtime for full entailment (10,830 questions) was **13.8 minutes** on an NVIDIA L40S (46 GB VRAM, 3.1 GB used). The incremental caching system ensures no work is lost on preemption — generation saves every 50 questions, entailment every 200.
+
+Generation was run locally using `nohup python run_baseline.py --stage generate`, resuming across sessions due to OpenAI's 10K requests/day rate limit. Method 1 (Stage 4) runs on CPU in ~6 seconds.
 
 ---
 
@@ -444,7 +452,15 @@ Implemented in [conservative.py](ds_sgen/conservative.py) and run via [run_conse
 - **Option B — Reduced Epsilon:** Grid search uses `eps_eff = epsilon/k`, but validity is evaluated against the original epsilon for fair comparison. Swept over k = {1.0, 1.5, 2.0, 3.0, 4.0}.
 - **Option C — Delta Budget Allocation:** Reserve a fraction of delta for shift uncertainty: `delta_cp = delta - delta_p - delta_s`. Smaller delta_adj widens Clopper-Pearson bounds. Swept over frac = {0.0, 0.25, 0.50, 0.75}.
 
-Expected result: restores TQA validity but at severe efficiency cost (too many "I don't know" responses). Requires cached Stages 1-3 from baseline; runs on CPU only in minutes.
+### Results (500 splits, epsilon=0.25, delta=0.02)
+
+**Option A (Safety Factor):** gamma=1.0 is identical to Method 1 (NQ validity=12.4%). Any gamma > 1.0 causes all thresholds to be rejected → 0% efficiency, 100% validity (trivially, by selecting nothing).
+
+**Option B (Reduced Epsilon):** Same collapse — eps/1.5 or lower makes bounds too strict, all splits abstain (100% validity, 0% efficiency).
+
+**Option C (Delta Budget):** Gradual improvement. Best at frac=0.75: NQ validity=22.0% (vs 12.4% for M1), efficiency=18.5%, FDR-E=0.2604. Options A and B are too binary (either no effect or total abstention); Option C provides a smooth tradeoff.
+
+**Conclusion:** Conservative methods cannot meaningfully restore the PAC guarantee. The best variant improves NQ validity from 12.4% to 22.0% — a 9.6pp gain, but still far below the 98% target.
 
 ---
 
@@ -491,16 +507,48 @@ TQA questions  ──┐                    ┌──  NQ questions
 
 3. **Weight indexing through splits:** When permuting calibration data, weights are permuted with the same index array so each data point retains its importance weight through all splits.
 
-### Epsilon Sweep
+### Results (500 splits, epsilon=0.25, delta=0.02)
 
-Since eps=0.25 is mathematically infeasible on NQ (top 5% by fM1 = 69.4% correct, need 75%+), the epsilon sweep runs all three methods at eps = {0.25, 0.30, 0.35, 0.40}. The headline figure shows where each method's validity crosses the 98% PAC target.
+**Diagnostics:**
+- Domain classifier 5-fold CV accuracy: **91.7%** (±0.8%) — TQA and NQ are nearly separable
+- Effective sample size: n_eff = **1,112.5 / 3,610 (30.8%)** — 69% information loss from reweighting
+- Weights: min=0.041, median=0.332, max=5.692 (raw max before clipping: 32.7)
 
-**Expected results:**
-- Method 1: NQ validity stays below 50% across all epsilons
-- Method 2: Slight improvement at higher epsilons but with severe efficiency loss
-- Method 3: Crosses 98% validity around eps=0.35, demonstrating that importance reweighting fixes the covariate shift component
+**Headline numbers:**
 
-**Theoretical basis (informal):** Under covariate shift, SGen's FDR-E decomposition (Lemma 1) is purely algebraic and distribution-agnostic. Each component (FER, FNER, NER) can be re-bounded using importance-weighted Hoeffding-type bounds instead of uniform binomial bounds. The effective sample size n_eff accounts for information loss from non-uniform weighting. See WR-CP (Xu et al., ICLR 2025) for the formal decomposition into covariate + concept shift terms.
+| Method | NQ Validity | NQ FDR-E | NQ Efficiency |
+|--------|-------------|----------|---------------|
+| M1 (Vanilla SGen) | 12.4% | 0.3015 | 22.9% |
+| M2 (Conservative) | 22.0% | 0.2604 | 18.5% |
+| **M3 (DS-SGen)** | **68.8%** | **0.1065** | **8.1%** |
+| *Target* | *≥ 98%* | *≤ 0.25* | *maximize* |
+
+**Critical finding: the 68.8% validity is entirely vacuous.** Of 500 splits, 344 (68.8%) find no valid threshold and abstain entirely (selecting nothing = FDR-E = 0 = "valid"). The remaining 156 splits find thresholds, but **0/156 are valid on NQ** (mean FDR-E = 0.3413, minimum = 0.2550). The "improvement" over M1 comes from more abstention (wider weighted bounds due to n_eff collapse), not from better-calibrated thresholds.
+
+### Epsilon Sweep Results
+
+| Epsilon | M1 NQ Valid | M2 NQ Valid | M3 NQ Valid | M3 NQ Eff |
+|---------|-------------|-------------|-------------|-----------|
+| 0.25 | 12.4% | 22.0% | 68.8% | 8.1% |
+| 0.30 | 0.0% | 0.0% | 11.0% | 46.1% |
+| 0.35 | 0.0% | 0.0% | 0.2% | 80.0% |
+| 0.40 | 0.0% | 0.0% | 0.0% | 98.2% |
+
+**No method achieves ≥ 98% validity at any tested epsilon.** Validity *decreases* with higher epsilon (counterintuitively) because higher epsilon makes thresholds easier to find, which removes the abstention-based validity floor. All TQA-calibrated thresholds systematically fail on NQ at every epsilon level due to concept shift.
+
+### Key Finding: Domain Shift vs. Domain Change
+
+The results reveal that TQA → NQ is a **domain change** (both P(X) and P(Y|X) differ), not a **domain shift** (only P(X) differs). DS-SGen's importance reweighting correctly addresses covariate shift but cannot fix concept shift — the 27.7pp accuracy gap (70.8% TQA vs 43.1% NQ) represents a fundamental change in the model's knowledge, not just a change in question distribution.
+
+**Evidence:**
+1. **91.7% classifier accuracy** — domains are nearly separable (not overlapping subsets)
+2. **Identical non-vacuous FDR-E** — M1: 0.3442, M3: 0.3413 (reweighting doesn't improve actual error rates)
+3. **0/156 valid non-vacuous splits** — correcting P(X) doesn't change P(Y|X)
+4. **Minimum FDR-E = 0.2550** — concept shift imposes a hard floor above ε=0.25
+
+**When DS-SGen would work:** For genuine domain shifts where P(Y|X) is approximately stable — e.g., a clinical QA system deployed in a cardiac clinic (same medical knowledge, narrower question focus, classifier accuracy ~70%, accuracy gap < 10pp). Our TQA → NQ experiment establishes the boundary between tractable shifts and intractable domain changes.
+
+**Theoretical basis:** Under covariate shift, SGen's FDR-E decomposition (Lemma 1) is purely algebraic and distribution-agnostic. Each component (FER, FNER, NER) can be re-bounded using importance-weighted Hoeffding-type bounds instead of uniform binomial bounds. The effective sample size n_eff accounts for information loss from non-uniform weighting. See WR-CP (Xu et al., ICLR 2025) for the formal decomposition into covariate + concept shift terms.
 
 ## References
 

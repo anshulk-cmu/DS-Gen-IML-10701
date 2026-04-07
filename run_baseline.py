@@ -1,11 +1,18 @@
 """Orchestrator for DS-SGen baseline experiment.
 
-Pipeline stages (each is cached — safe to restart after preemption):
+Pipeline stages (each is cached — safe to restart after interruption):
   1. Load datasets (NQ-Open validation + TriviaQA unfiltered.nocontext)
-  2. Generate responses (greedy + K=5 sampled) with LLaMA-3.1-8B-Instruct
+  2. Generate responses (greedy + K=5 sampled) with GPT-4o-mini
   3. Entailment scoring (correctness + self-consistency) with DeBERTa-v2-xxlarge-mnli
-  4. SGen-Semi algorithm (100 random splits, PAC-FDR threshold selection)
+  4. SGen-Semi algorithm (500 random splits, PAC-FDR threshold selection)
   5. Print summary
+
+Usage:
+  python run_baseline.py --config configs/default.yaml               # all stages
+  python run_baseline.py --config configs/default.yaml --stage data  # data only
+  python run_baseline.py --config configs/default.yaml --stage generate
+  python run_baseline.py --config configs/default.yaml --stage entailment
+  python run_baseline.py --config configs/default.yaml --stage sgen
 """
 
 import argparse
@@ -13,15 +20,21 @@ import time
 
 from ds_sgen.utils import load_config, set_seed
 from ds_sgen.data_loading import load_and_cache_datasets
-from ds_sgen.generate_responses import generate_and_cache
 from ds_sgen.entailment_scoring import score_and_cache
 from ds_sgen.sgen_semi import run_experiment
+
+
+def _load_generations(cfg, dataset_name, records):
+    """Load generation cache. Import generate_responses lazily to avoid
+    requiring OPENAI_API_KEY when only running later stages."""
+    from ds_sgen.generate_responses import generate_and_cache_openai
+    return generate_and_cache_openai(cfg, dataset_name, records)
 
 
 def print_summary(results: dict):
     """Print a formatted summary of experiment results."""
     print("\n" + "=" * 70)
-    print("DS-SGen BASELINE RESULTS")
+    print("DS-SGen BASELINE RESULTS (GPT-4o-mini)")
     print("=" * 70)
 
     id_r = results["indomain"]
@@ -42,32 +55,23 @@ def print_summary(results: dict):
 
     print("\n" + "=" * 70)
 
-    id_val = id_r["validity_rate"]
-    sh_val = sh_r["validity_rate"]
-    print(f"\n  {id_r['label']} validity:  {id_val:.2%}")
-    print(f"  {sh_r['label']} validity: {sh_val:.2%}")
-    if sh_val < id_val - 0.05:
-        print(f"  >>> Domain shift detected: {sh_r['label']} validity dropped significantly")
-    else:
-        print("  >>> No significant domain shift in validity")
-    print()
-
 
 def main():
     parser = argparse.ArgumentParser(description="Run DS-SGen baseline experiment")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
     parser.add_argument("--stage", type=str, default="all",
                         choices=["all", "data", "generate", "entailment", "sgen"],
-                        help="Run a specific stage only (default: all)")
+                        help="Run up to a specific stage (default: all)")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    cfg["log_dir"] = "logs"
     set_seed(cfg["seed"])
 
-    print(f"DS-SGen Baseline Experiment")
+    print("DS-SGen Baseline Experiment")
     print(f"  Config: {args.config}")
     print(f"  Stage: {args.stage}")
-    print(f"  Generator: {cfg['paths']['model']}")
+    print(f"  Generator: GPT-4o-mini (OpenAI API)")
     print(f"  Entailment: {cfg['paths']['entailment_model']}")
     print(f"  Seed: {cfg['seed']}")
     print()
@@ -81,14 +85,14 @@ def main():
         return
 
     # Stage 2: Generate responses
-    print("Stage 2: Generating responses")
-    nq_gen = generate_and_cache(cfg, "nq", nq_records)
-    tqa_gen = generate_and_cache(cfg, "tqa", tqa_records)
+    print("Stage 2: Generating responses (GPT-4o-mini)")
+    nq_gen = _load_generations(cfg, "nq", nq_records)
+    tqa_gen = _load_generations(cfg, "tqa", tqa_records)
     print()
     if args.stage == "generate":
         return
 
-    # Stage 3: Entailment scoring
+    # Stage 3: Entailment scoring (DeBERTa, runs locally on GPU)
     print("Stage 3: Entailment scoring")
     nq_ent = score_and_cache(cfg, "nq", nq_records, nq_gen)
     tqa_ent = score_and_cache(cfg, "tqa", tqa_records, tqa_gen)
@@ -106,7 +110,6 @@ def main():
     elapsed = time.time() - t0
     print(f"\n  Total time: {elapsed/60:.1f} minutes")
 
-    # Stage 5: Summary
     print_summary(results)
 
 
