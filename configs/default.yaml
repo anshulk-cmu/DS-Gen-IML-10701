@@ -82,6 +82,15 @@ importance_weighted:
   weight_clip_percentiles: [90, 95, 99] # sensitivity sweep
   n_splits: null                        # null = use sgen.n_splits
 
+# === Screening Pre-flight ===
+screening:
+  dataset: "akariasai/PopQA"
+  split: "test"                          # PopQA only has a test split
+  head_cutoff: 0.60                      # top 60% by s_pop = source (head)
+  tail_cutoff: 0.20                      # bottom 20% by s_pop = target (tail)
+  sample_size: 1000                      # questions per domain (~$2 API cost)
+  epsilon: null                          # null = use sgen.epsilon
+
 # === Epsilon Sweep ===
 epsilon_sweep:
   epsilons: [0.25, 0.30, 0.35, 0.40]
