@@ -1,6 +1,10 @@
-# Heavy files (symlinked to /data)
-cache/
-results/
+# Runtime symlinks (point to /data); tracked copies live under data/
+/cache
+/results
+# Scratch redirect dir inside the tracked copy (transient M1/M3 hardcoded-save dumps)
+data/results/_synth_eps_scratch/
+data/results/_synth_a_scratch/
+data/results/_synth_scratch/
 
 # Model weights
 *.pt

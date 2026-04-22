@@ -1,0 +1,236 @@
+{
+  "synthetic": [
+    {
+      "epsilon": 0.05,
+      "m1": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      },
+      "m3": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      }
+    },
+    {
+      "epsilon": 0.1,
+      "m1": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      },
+      "m3": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      }
+    },
+    {
+      "epsilon": 0.15,
+      "m1": {
+        "validity_rate": 0.922,
+        "mean_efficiency": 0.07886499999999999,
+        "mean_fdr_e": 0.025146783448255026,
+        "vacuous_frac": 0.822,
+        "non_vacuous_count": 89,
+        "non_vacuous_validity": 0.5617977528089888,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.07971666666666667
+      },
+      "m3": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.008879999999999999,
+        "mean_fdr_e": 0.002951951181209493,
+        "vacuous_frac": 0.978,
+        "non_vacuous_count": 11,
+        "non_vacuous_validity": 1.0,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.009058333333333333
+      }
+    },
+    {
+      "epsilon": 0.2,
+      "m1": {
+        "validity_rate": 0.996,
+        "mean_efficiency": 0.5491775,
+        "mean_fdr_e": 0.14882710493821077,
+        "vacuous_frac": 0.086,
+        "non_vacuous_count": 457,
+        "non_vacuous_validity": 0.9956236323851203,
+        "indomain_validity": 0.996,
+        "indomain_efficiency": 0.5484833333333333
+      },
+      "m3": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.1370425,
+        "mean_fdr_e": 0.04194519694902217,
+        "vacuous_frac": 0.71,
+        "non_vacuous_count": 145,
+        "non_vacuous_validity": 1.0,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.1371
+      }
+    },
+    {
+      "epsilon": 0.25,
+      "m1": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.8290725,
+        "mean_fdr_e": 0.19568672905004825,
+        "vacuous_frac": 0.008,
+        "non_vacuous_count": 496,
+        "non_vacuous_validity": 1.0,
+        "indomain_validity": 0.998,
+        "indomain_efficiency": 0.8218499999999999
+      },
+      "m3": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.4798125,
+        "mean_fdr_e": 0.12965097463359765,
+        "vacuous_frac": 0.198,
+        "non_vacuous_count": 401,
+        "non_vacuous_validity": 1.0,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.47939166666666666
+      }
+    }
+  ],
+  "tqa_nq": [
+    {
+      "epsilon": 0.05,
+      "m1": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      },
+      "m3": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      }
+    },
+    {
+      "epsilon": 0.1,
+      "m1": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      },
+      "m3": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      }
+    },
+    {
+      "epsilon": 0.15,
+      "m1": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      },
+      "m3": {
+        "validity_rate": 1.0,
+        "mean_efficiency": 0.0,
+        "mean_fdr_e": 0.0,
+        "vacuous_frac": 1.0,
+        "non_vacuous_count": 0,
+        "non_vacuous_validity": null,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0
+      }
+    },
+    {
+      "epsilon": 0.2,
+      "m1": {
+        "validity_rate": 0.982,
+        "mean_efficiency": 0.0023634349030470917,
+        "mean_fdr_e": 0.005340019118563274,
+        "vacuous_frac": 0.98,
+        "non_vacuous_count": 10,
+        "non_vacuous_validity": 0.1,
+        "indomain_validity": 0.998,
+        "indomain_efficiency": 0.005047091412742383
+      },
+      "m3": {
+        "validity_rate": 0.994,
+        "mean_efficiency": 0.000754016620498615,
+        "mean_fdr_e": 0.0016844678481404785,
+        "vacuous_frac": 0.994,
+        "non_vacuous_count": 3,
+        "non_vacuous_validity": 0.0,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.0015955678670360111
+      }
+    },
+    {
+      "epsilon": 0.25,
+      "m1": {
+        "validity_rate": 0.124,
+        "mean_efficiency": 0.22872908587257618,
+        "mean_fdr_e": 0.3015007903882835,
+        "vacuous_frac": 0.124,
+        "non_vacuous_count": 438,
+        "non_vacuous_validity": 0.0,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.4078208679593721
+      },
+      "m3": {
+        "validity_rate": 0.688,
+        "mean_efficiency": 0.08106204986149583,
+        "mean_fdr_e": 0.10647061511890658,
+        "vacuous_frac": 0.688,
+        "non_vacuous_count": 156,
+        "non_vacuous_validity": 0.0,
+        "indomain_validity": 1.0,
+        "indomain_efficiency": 0.14159372114496768
+      }
+    }
+  ]
+}

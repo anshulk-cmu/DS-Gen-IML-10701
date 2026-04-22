@@ -1,0 +1,115 @@
+{
+  "epsilons": [
+    0.25,
+    0.3,
+    0.35,
+    0.4
+  ],
+  "method1": {
+    "0.25": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.14722458097722843,
+      "indomain_mean_efficiency": 0.4078208679593721,
+      "shifted_validity": 0.124,
+      "shifted_mean_fdr_e": 0.3015007903882835,
+      "shifted_mean_efficiency": 0.22872908587257618
+    },
+    "0.3": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.2204159150236828,
+      "indomain_mean_efficiency": 0.7867700831024931,
+      "shifted_validity": 0.0,
+      "shifted_mean_fdr_e": 0.459345506467023,
+      "shifted_mean_efficiency": 0.59916675900277
+    },
+    "0.35": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.2675980533871671,
+      "indomain_mean_efficiency": 0.946679593721145,
+      "shifted_validity": 0.0,
+      "shifted_mean_fdr_e": 0.5335293534460791,
+      "shifted_mean_efficiency": 0.8798127423822714
+    },
+    "0.4": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.2910769960507196,
+      "indomain_mean_efficiency": 0.9993277931671283,
+      "shifted_validity": 0.0,
+      "shifted_mean_fdr_e": 0.5687963947433585,
+      "shifted_mean_efficiency": 0.9995102493074792
+    }
+  },
+  "method2_optC": {
+    "0.25": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.12917040407041394,
+      "indomain_mean_efficiency": 0.33766759002770086,
+      "shifted_validity": 0.22,
+      "shifted_mean_fdr_e": 0.2604020042654601,
+      "shifted_mean_efficiency": 0.18495290858725763
+    },
+    "0.3": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.21595450038507583,
+      "indomain_mean_efficiency": 0.7639058171745152,
+      "shifted_validity": 0.0,
+      "shifted_mean_fdr_e": 0.4507880099213233,
+      "shifted_mean_efficiency": 0.5671839335180056
+    },
+    "0.35": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.2636146034682475,
+      "indomain_mean_efficiency": 0.9366592797783933,
+      "shifted_validity": 0.0,
+      "shifted_mean_fdr_e": 0.527656858107066,
+      "shifted_mean_efficiency": 0.8588587257617728
+    },
+    "0.4": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.2910769960507196,
+      "indomain_mean_efficiency": 0.9993277931671283,
+      "shifted_validity": 0.0,
+      "shifted_mean_fdr_e": 0.5687963947433585,
+      "shifted_mean_efficiency": 0.9995102493074792
+    }
+  },
+  "method3": {
+    "0.25": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.05316501021978336,
+      "indomain_mean_efficiency": 0.14159372114496768,
+      "shifted_validity": 0.688,
+      "shifted_mean_fdr_e": 0.10647061511890658,
+      "shifted_mean_efficiency": 0.08106204986149583
+    },
+    "0.3": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.19027162015821705,
+      "indomain_mean_efficiency": 0.6423065558633425,
+      "shifted_validity": 0.11,
+      "shifted_mean_fdr_e": 0.3946476618473628,
+      "shifted_mean_efficiency": 0.46126592797783933
+    },
+    "0.35": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.2532202051780086,
+      "indomain_mean_efficiency": 0.9016952908587257,
+      "shifted_validity": 0.002,
+      "shifted_mean_fdr_e": 0.5113693229606618,
+      "shifted_mean_efficiency": 0.7997473684210527
+    },
+    "0.4": {
+      "indomain_validity": 1.0,
+      "indomain_mean_fdr_e": 0.28771617239533237,
+      "indomain_mean_efficiency": 0.9914182825484763,
+      "shifted_validity": 0.0,
+      "shifted_mean_fdr_e": 0.5637015560231343,
+      "shifted_mean_efficiency": 0.9820509695290859
+    }
+  },
+  "diagnostics": {
+    "classifier_cv_accuracy": 0.9174515235457065,
+    "weight_n_eff": 1112.5391320732213,
+    "delta_shift_m2": 0.0149925
+  }
+}
