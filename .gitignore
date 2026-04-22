@@ -30,6 +30,7 @@ Thumbs.db
 logs/*.log
 logs/*.out
 logs/*.err
+.claude
 
 # Slurm output
 slurm-*.out

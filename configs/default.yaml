@@ -96,5 +96,29 @@ epsilon_sweep:
   epsilons: [0.25, 0.30, 0.35, 0.40]
   n_splits: 500
 
+# === Final covariate-shift experiment: epsilon sweep + concept-shift baseline ===
+synthetic_eps:
+  epsilons: [0.05, 0.10, 0.15, 0.20, 0.25]
+  include_tqa_nq: true   # also sweep on the TQA->NQ concept-shift pair
+
+# === Synthetic QA (Design A): generate pool from scratch via GPT-4o-mini ===
+synthetic_a:
+  per_cell: 80                  # items per (topic, tier); 10 topics x 3 tiers x 80 = 2400
+  K: 10                         # one cluster per semantic topic on the generated pool
+  n_source: 800
+  n_target: 800
+  fm1_quantile: 0.00            # no fM1 filter — use the full generated pool
+  target_clf_acc: 0.66
+  partition_strategy: "accuracy_sorted"  # top-K/2 acc clusters -> A (source); bottom -> B (target)
+
+# === Synthetic Covariate-Shift Experiment ===
+synthetic:
+  fm1_quantile: 0.40            # keep top 60% of TQA by fM1 (pushes source acc >= 0.80 floor)
+  K: 20                         # k-means topics on filtered pool
+  n_source: 1000                # samples per domain
+  n_target: 1000
+  alphas: [0.60, 0.65, 0.70, 0.75, 0.80, 0.85]
+  target_clf_acc: 0.66          # screening tie-break: pick alpha with acc_clf closest to this
+
 # === Reproducibility ===
 seed: 42
