@@ -45,7 +45,7 @@ data/results/               cached experiment outputs (tracked); see data/README
 plots/                      33 development PNGs (29 from plot_results.py, 4 from plot_synthetic_final.py)
 scripts/                    SLURM wrappers used for the original runs (site-specific settings)
 docs/                       historical development notes per method (superseded by the paper)
-docs/archive/               early planning documents and a progress report (historical)
+docs/archive/               an early planning document (historical)
 papers/                     reading notes on related work
 environment.yml             conda environment
 ```
@@ -182,10 +182,6 @@ python run_synthetic_eps.py                       # final pair (α = 0.75), ε s
   url    = {https://arxiv.org/abs/XXXX.XXXXX}
 }
 ```
-
-## Acknowledgments
-
-Thanks to Justin Luan for helpful discussions in the early stages of this work.
 
 ## References
 

@@ -1,7 +1,7 @@
 # Synthetic Covariate-Shift Experiment — Complete Analysis
 
 **Date:** 2026-04-21
-**Authors:** Anshul Kumar, Justin Luan (Carnegie Mellon University)
+**Author:** Anshul Kumar (Carnegie Mellon University)
 **Experiment batch:** Design A (synthetic QA pool) + Epsilon sweep
 **SLURM job IDs:** 7346859 (first attempt, crashed), 7350272 (redesign, Design A accepted), 7352717 (final epsilon sweep, all 4 criteria passed)
 **Artifacts covered:** [`cache/synth_qa_*`](../data/cache/), [`cache/synthetic_a_pair_indices.json`](../data/cache/synthetic_a_pair_indices.json), [`results/synthetic_final_*.json`](../data/results/), [`plots/synthetic_final_*.png`](../plots/)

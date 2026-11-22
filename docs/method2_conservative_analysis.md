@@ -1,7 +1,7 @@
 # Method 2: Conservative Threshold — Complete Analysis
 
 **DS-SGen: Domain-Shift-Aware Selective Generation for Reliable LLMs**
-**Anshul Kumar, Justin Luan — Carnegie Mellon University**
+**Anshul Kumar — Carnegie Mellon University**
 
 > **Historical development notes, not the paper.** This document was written during the project, before the paper, and is kept for transparency. Parts of it are out of date or wrong. Where it disagrees with the paper, the paper and the cached results in `data/` are authoritative. Method 1 (`ds_sgen/sgen_semi.py`) is a simplified SGen-Semi-style baseline, not a faithful reimplementation of Lee et al. (2024); see its module docstring. Paths written as `cache/...` and `results/...` mean `data/cache/...` and `data/results/...`; source line numbers cited here may have drifted.
 >

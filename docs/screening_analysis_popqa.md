@@ -1,7 +1,7 @@
 # Screening Analysis — PopQA Head→Tail and the Dataset Selection Problem for DS-SGen
 
 **Date:** 2026-04-11
-**Authors:** Anshul Kumar, Justin Luan (Carnegie Mellon University)
+**Author:** Anshul Kumar (Carnegie Mellon University)
 **Context:** After TQA→NQ revealed that DS-SGen's importance reweighting collapses under concept shift, we designed a 6-test screening protocol and applied it to PopQA head→tail — a candidate pair that was supposed to isolate *pure covariate shift*. This document records what we found, why it matters, and why we now believe the DS-SGen method is theoretically correct but finding a dataset that satisfies its assumptions at non-trivial ε is genuinely hard.
 
 > **Historical development notes, not the paper.** This document was written during the project, before the paper, and is kept for transparency. Parts of it are out of date or wrong. Where it disagrees with the paper, the paper and the cached results in `data/` are authoritative. Method 1 (`ds_sgen/sgen_semi.py`) is a simplified SGen-Semi-style baseline, not a faithful reimplementation of Lee et al. (2024); see its module docstring. Paths written as `cache/...` and `results/...` mean `data/cache/...` and `data/results/...`; source line numbers cited here may have drifted.
