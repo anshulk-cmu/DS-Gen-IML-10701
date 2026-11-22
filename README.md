@@ -45,7 +45,6 @@ data/results/               cached experiment outputs (tracked); see data/README
 plots/                      33 development PNGs (29 from plot_results.py, 4 from plot_synthetic_final.py)
 scripts/                    SLURM wrappers used for the original runs (site-specific settings)
 docs/                       historical development notes per method (superseded by the paper)
-docs/archive/               an early planning document (historical)
 papers/                     reading notes on related work
 environment.yml             conda environment
 ```
