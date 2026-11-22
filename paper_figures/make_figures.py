@@ -156,18 +156,19 @@ def fig02(wq):
     fig, axes = plt.subplots(1, 2, figsize=(FULL, 1.9), sharey=True)
     exp = {"synthetic": ([0.860, 0.825, 0.815, 0.760], 0.100),
            "tqa_nq": ([0.645, 0.717, 0.743, 0.729], -0.084)}
-    for ax, (lab, key) in zip(axes, [("Synthetic (covariate)", "synthetic"),
-                                     (f"TQA{ARROW}NQ (concept)", "tqa_nq")]):
+    # The paper claims only that the natural pair is not covariate shift, so the label states
+    # the sign, not a diagnosis.
+    for ax, (lab, key) in zip(axes, [("Synthetic pair", "synthetic"), (f"TQA{ARROW}NQ", "tqa_nq")]):
         qs, spread = wq[key]["quartile_accs"], wq[key]["Q1_minus_Q4"]
         for i, (a, b) in enumerate(zip(qs, exp[key][0])):
             chk(2, f"{key} Q{i+1}", a, b, 0.0005)
         chk(2, f"{key} Q1-Q4", spread, exp[key][1], 0.0005)
-        tag = "covariate" if spread >= 0.05 else "concept"
+        tag = "covariate-shift sign" if spread >= 0.05 else "opposite sign"
         bars = ax.bar(["Q1\n(source-like)", "Q2", "Q3", "Q4\n(target-like)"], qs,
                       color=PASS if spread >= 0.05 else FAIL, width=0.7)
         for bar, v in zip(bars, qs):
             ax.text(bar.get_x() + bar.get_width() / 2, v + 0.01, f"{v:.3f}", ha="center", fontsize=7)
-        ax.set_title(f"{lab}\nQ1 $-$ Q4 = {m(f'{spread:+.3f}')} ({tag} signature)")
+        ax.set_title(f"{lab}: Q1 $-$ Q4 = {m(f'{spread:+.3f}')} ({tag})")
         ax.set_ylim(0, 1.0)
     axes[0].set_ylabel("Source accuracy")
     save(fig, "fig02_weight_quartiles")
@@ -183,15 +184,15 @@ def fig03(sw):
     e, m1, m3 = _curves(sw["synthetic"], "validity_rate")
     for a, b in zip(m1, [1, 1, 0.922, 0.996, 1]): chk(3, "M1 synth validity", a, b, 0.0005)
     for a, b in zip(m3, [1, 1, 1, 1, 1]): chk(3, "M3 synth validity", a, b, 0.0005)
-    ax.plot(e, m1, "o-", color=M1, label="M1 synthetic (covariate)")
-    ax.plot(e, m3, "s-", color=M3, label="M3 synthetic (covariate)")
+    ax.plot(e, m1, "o-", color=M1, label="M1 synthetic pair")
+    ax.plot(e, m3, "s-", color=M3, label="M3 synthetic pair")
     et, m1t, m3t = _curves(sw["tqa_nq"], "validity_rate")
     vac = [r["m3"]["vacuous_frac"] for r in sw["tqa_nq"]]
     for a, b in zip(m1t, [1, 1, 1, 0.982, 0.124]): chk(3, "M1 TQA-NQ validity", a, b, 0.0005)
     for a, b in zip(m3t, [1, 1, 1, 0.994, 0.688]): chk(3, "M3 TQA-NQ validity", a, b, 0.0005)
     for a, b in zip(vac, [1.00, 1.00, 1.00, 0.99, 0.69]): chk(3, "M3 TQA-NQ vac label", round(a, 2), b, 1e-9)
-    ax.plot(et, m1t, "o--", color=M1, mfc="white", lw=1.0, label=f"M1 TQA{ARROW}NQ (concept)")
-    ax.plot(et, m3t, "s--", color=M3, mfc="white", lw=1.0, label=f"M3 TQA{ARROW}NQ (concept)")
+    ax.plot(et, m1t, "o--", color=M1, mfc="white", lw=1.0, label=f"M1 TQA{ARROW}NQ")
+    ax.plot(et, m3t, "s--", color=M3, mfc="white", lw=1.0, label=f"M3 TQA{ARROW}NQ")
     for x, y, v in zip(et, m3t, vac):
         # last point: label to the right, clear of the incoming dashed line; others above
         off, ha, va = ((6, 0), "left", "center") if x == et[-1] else ((0, 5), "center", "bottom")
@@ -741,10 +742,10 @@ def fig21(sw):
     for a, b in zip(m3, [0, 0, 0.009, 0.137, 0.480]): chk(21, "M3 synth eff", a, b, 0.0005)
     for a, b in zip(m1t, [0, 0, 0, 0.002, 0.229]): chk(21, "M1 TQA-NQ eff", a, b, 0.0005)
     for a, b in zip(m3t, [0, 0, 0, 0.001, 0.081]): chk(21, "M3 TQA-NQ eff", a, b, 0.0005)
-    ax.plot(e, m1, "o-", color=M1, label="M1 synthetic (covariate)")
-    ax.plot(e, m3, "s-", color=M3, label="M3 synthetic (covariate)")
-    ax.plot(et, m1t, "o--", color=M1, mfc="white", lw=1.0, label=f"M1 TQA{ARROW}NQ (concept)")
-    ax.plot(et, m3t, "s--", color=M3, mfc="white", lw=1.0, label=f"M3 TQA{ARROW}NQ (concept)")
+    ax.plot(e, m1, "o-", color=M1, label="M1 synthetic pair")
+    ax.plot(e, m3, "s-", color=M3, label="M3 synthetic pair")
+    ax.plot(et, m1t, "o--", color=M1, mfc="white", lw=1.0, label=f"M1 TQA{ARROW}NQ")
+    ax.plot(et, m3t, "s--", color=M3, mfc="white", lw=1.0, label=f"M3 TQA{ARROW}NQ")
     ax.set_xlabel(f"{EPS} (FDR-E target)"); ax.set_ylabel("Mean shifted efficiency")
     ax.set_ylim(0, 1.0); ax.set_xticks(e); ax.grid(True); ax.legend(loc="upper left")
     save(fig, "fig21_synthetic_efficiency_vs_eps")
