@@ -158,7 +158,7 @@ python run_synthetic_eps.py                       # final pair (α = 0.75), ε s
 - **M3 weights.** The domain classifier is refit on all 7,220 TQA and NQ questions and the weights are its in-sample predictions on TQA; the weighted conformal quantile omits the test-point mass of Tibshirani et al. (2019); the Kish-n_eff Clopper–Pearson bound is a heuristic. Screening uses the same classifier but uncapped weights (TQA→NQ ESS ratio 0.072 vs 30.8% for M3's capped weights).
 - **Vacuous splits.** A split in which no threshold passes the bound abstains on every question and is counted as valid with FDR-E 0. Per-split records are saved for M1 and M3 at ε = 0.25 only; M2 and the ε sweeps store aggregates, so their validity cannot be split into vacuous and committed splits.
 - **Screening thresholds** were set after observing the TQA→NQ failure, and the synthetic pair was built to pass them.
-- **No licence yet.** The authors have not chosen a licence; until one is added, default copyright applies. Upstream dataset licences and OpenAI's terms apply to the cached records and generations (see `data/README.md`).
+- **Licences of the data.** The code is MIT-licensed (see `LICENSE`). The cached dataset records keep their upstream licences, and OpenAI's terms apply to the model-generated text (see `data/README.md`).
 
 ## Datasets and models
 
@@ -170,6 +170,10 @@ python run_synthetic_eps.py                       # final pair (α = 0.75), ε s
 | Generator | `gpt-4o-mini` (OpenAI API) | system prompt "Answer the following question concisely in one sentence."; greedy (T = 0, logprobs) + 5 samples (T = 0.7); max_tokens 512 |
 | NLI | `microsoft/deberta-v2-xxlarge-mnli` | label order {0: CONTRADICTION, 1: NEUTRAL, 2: ENTAILMENT}; fp16 |
 | Embeddings | `all-MiniLM-L6-v2` (sentence-transformers) | 384-dim |
+
+## Licence
+
+The code in this repository is released under the MIT License (`LICENSE`). The cached records of TriviaQA, NQ-Open and PopQA keep their upstream licences, and the GPT-4o-mini generations and the synthetic question pool are additionally subject to OpenAI's terms of use; see `data/README.md`.
 
 ## Citation
 

@@ -423,7 +423,7 @@ Expected output: `All 4 success criteria verified from data/`.
 
 ## 9. Licensing + attribution
 
-- **Our additions** (synthetic pool, pair definitions, synthetic_final_* results) are released under the repository licence (to be added by the authors; none is included yet).
+- **Our additions** (synthetic pool, pair definitions, synthetic_final_* results) are released under the repository's MIT licence (`LICENSE`); OpenAI's terms of use also apply to the model-generated text they contain.
 - **Base datasets** retain their upstream licences (see §6.1; the licence names there were not re-checked against the upstream dataset cards). Check the upstream terms before redistributing the cached records.
 - **Generated content** (GPT-4o-mini answers and the synthetic question pool): subject to OpenAI's terms of use. We make no legal claim about its copyright status.
 - **Models referenced** (not redistributed): DeBERTa-v2-xxlarge-mnli (MIT), all-MiniLM-L6-v2 (Apache 2.0), GPT-4o-mini (proprietary, API-only).
