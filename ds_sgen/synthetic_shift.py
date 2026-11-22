@@ -1,12 +1,19 @@
 """Synthetic covariate-shift construction for DS-SGen validation.
 
-Builds a (source, target) pair from a single underlying TriviaQA pool such that
-P(X) differs (via topic-mixture weighting) but P(Y | X) is identical (the
-underlying question and its cached label are the same deterministic entity in
-both samples). Positive control for the screening protocol.
+Builds a (source, target) pair as two disjoint draws from one question pool
+(argument names say "tqa" for historical reasons; the paper's final pair uses
+the GPT-4o-mini synthetic pool synth_qa_*, via run_synthetic_eps.py). P(X)
+differs through cluster-mixture weighting; because both sides come from one
+pool scored by one pipeline, the conditional law of correctness given the
+question is shared in distribution (not a per-question statement).
+Positive control for the screening protocol.
 
-All data is read from the cached TQA Stage 1-3 outputs plus the cached MiniLM
-embeddings from Method 3. No HuggingFace / OpenAI / DeBERTa calls.
+Clusters are KMeans clusters of question embeddings; A_topics / B_topics in
+SyntheticPair are cluster ids, not topic names. With "accuracy_sorted", A is
+the top K/2 clusters by mean correctness.
+
+All data is read from cached generation/entailment outputs and cached MiniLM
+embeddings. No HuggingFace / OpenAI / DeBERTa calls.
 """
 
 import logging

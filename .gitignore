@@ -1,6 +1,9 @@
-# Runtime symlinks (point to /data); tracked copies live under data/
+# Old root-level cache/results links (now unused; the code reads data/cache and data/results).
+# data/cache and data/results are TRACKED: the paper's tables and figures are built from them.
 /cache
 /results
+# Hugging Face download cache (configs/default.yaml: paths.hf_cache)
+data/model_cache/
 # Scratch redirect dir inside the tracked copy (transient M1/M3 hardcoded-save dumps)
 data/results/_synth_eps_scratch/
 data/results/_synth_a_scratch/
@@ -30,12 +33,26 @@ envs/
 .DS_Store
 Thumbs.db
 
-# Logs (keep dir, ignore contents)
-logs/*.log
-logs/*.out
-logs/*.err
+# Logs
+logs/
+*.log
 .claude
 
 # Slurm output
 slurm-*.out
+
+# Secrets (OPENAI_API_KEY)
 .env
+.env.*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Embedding swap backups left by an interrupted run_synthetic*.py
+*.bak_synth_eps
+*.bak_synth_a
+*.bak_synth
+
+
+# default output of paper_figures/make_figures.py
+paper_figures/out/

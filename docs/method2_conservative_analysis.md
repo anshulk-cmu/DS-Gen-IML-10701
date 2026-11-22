@@ -1,7 +1,11 @@
 # Method 2: Conservative Threshold — Complete Analysis
 
 **DS-SGen: Domain-Shift-Aware Selective Generation for Reliable LLMs**
-**Anshul Kumar, Justin Luan — Carnegie Mellon University, 10-701, Spring 2026**
+**Anshul Kumar, Justin Luan — Carnegie Mellon University**
+
+> **Historical development notes, not the paper.** This document was written during the project, before the paper, and is kept for transparency. Parts of it are out of date or wrong. Where it disagrees with the paper, the paper and the cached results in `data/` are authoritative. Method 1 (`ds_sgen/sgen_semi.py`) is a simplified SGen-Semi-style baseline, not a faithful reimplementation of Lee et al. (2024); see its module docstring. Paths written as `cache/...` and `results/...` mean `data/cache/...` and `data/results/...`; source line numbers cited here may have drifted.
+>
+> Known stale content in this file: Sections 1-47 and Appendices A-G were written when NQ was the calibration set, with epsilon_e = 0.10, n_grid = 50 (|H| up to 2,500) and 100 splits. The reported runs (Section 48) calibrate on TQA with epsilon_e = 0.05, |H| = 20 and 500 splits. Option A (gamma > 1) reaches 100% validity only by selecting nothing, by construction.
 
 This document records every decision, every number, every piece of math, and every
 result from the Method 2 (Conservative Threshold) implementation. It is the truth
@@ -2271,7 +2275,7 @@ Total: 10 numbers per sweep configuration, 130 numbers total.
 results_path = f"{cfg['paths']['results_dir']}/conservative_results.json"
 ```
 
-Which resolves to: `/data/user_data/anshulk/dsgen/results/conservative_results.json`
+Which resolves to: `data/results/conservative_results.json`
 
 The save uses the atomic write function from `ds_sgen/utils.py` (tempfile + os.replace),
 which is safe against SLURM preemption. However, since Method 2 runs in minutes (not

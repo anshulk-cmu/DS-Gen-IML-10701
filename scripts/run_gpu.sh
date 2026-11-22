@@ -1,15 +1,16 @@
 #!/bin/bash
 #SBATCH --job-name=dsgen_clean
-#SBATCH --output=/home/anshulk/ds-gen-10701/logs/dsgen_clean-%j.out
-#SBATCH --error=/home/anshulk/ds-gen-10701/logs/dsgen_clean-%j.err
+#SBATCH --output=logs/dsgen_clean-%j.out
+#SBATCH --error=logs/dsgen_clean-%j.err
 #SBATCH --partition=preempt
 #SBATCH --gres=gpu:A6000:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
 #SBATCH --time=7-00:00:00
 #SBATCH --requeue
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=anshulk@andrew.cmu.edu
+# SLURM wrapper used for the paper runs. Submit from the repository root after
+# `mkdir -p logs`. Partition and GPU names are site-specific: adjust them.
+# Assumes a conda env named `dsgen` built from environment.yml.
 
 echo "============================================================"
 echo "DS-SGen — Clean Run (Stage 3 → Stage 4 → Method 2 → Plots)"
@@ -19,18 +20,17 @@ echo "Node     : $SLURM_NODELIST"
 echo "Start    : $(date)"
 echo "============================================================"
 
-source /data/user_data/anshulk/miniconda3/etc/profile.d/conda.sh
-conda activate /data/user_data/anshulk/envs/dsgen || { echo "ERROR: failed to activate dsgen"; exit 1; }
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate dsgen || { echo "ERROR: failed to activate dsgen"; exit 1; }
 
 echo "Python : $(which python)"
 echo "GPUs   : $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
 echo ""
 
-cd /home/anshulk/ds-gen-10701
+cd "${SLURM_SUBMIT_DIR:-.}"
 
-# Set HF cache to data dir (avoid filling home quota)
-export HF_HOME=/data/user_data/anshulk/dsgen/model_cache
-export TRANSFORMERS_CACHE=/data/user_data/anshulk/dsgen/model_cache
+export HF_HOME="${HF_HOME:-$PWD/data/model_cache}"
+export TRANSFORMERS_CACHE="$HF_HOME"
 
 # Create logs dir if needed
 mkdir -p logs
@@ -55,7 +55,7 @@ echo "  Stage 3 complete: $(date)"
 # ── Stage 4: SGen-Semi baseline (CPU, fast) ───────────────────────────────
 echo ""
 echo "============================================================"
-echo "Stage 4: SGen-Semi Baseline (100 splits)"
+echo "Stage 4: SGen-Semi-style baseline (Method 1; n_splits from config)"
 echo "  Started: $(date)"
 echo "============================================================"
 

@@ -1,9 +1,18 @@
 """Dataset pair screening protocol for DS-SGen.
 
-Pre-flight 6-test battery to determine whether a candidate (source, target)
-dataset pair has the right shift structure for importance-weighted SGen to
-succeed.  Each test has a go/no-go threshold calibrated against the known-bad
-TQA→NQ case.
+Pre-flight battery (six tests, T2 split into 2a/2b: seven pass/fail outcomes) to
+judge whether a candidate (source, target) dataset pair has the shift structure
+that importance-weighted selective generation needs. The go/no-go thresholds
+were chosen by the authors after observing the TQA->NQ failure; they were not
+fit on held-out pairs, and the synthetic pair was later built to pass them.
+
+Decision rule (print_scorecard): proceed only when all seven outcomes pass;
+n_pass + n_soft >= 6 is reported as borderline ("check borderline tests").
+
+Weights: p_hat = P(target | x) from a logistic classifier refit on all S+T
+embeddings, clipped to [0.01, 0.99]; w = p_hat / (1 - p_hat), so w lies in
+[0.0101, 99] and the extra clip to [0.01, 100] never binds. Unlike Method 3,
+no percentile cap and no normalisation are applied.
 
 Tests:
   1. Source accuracy floor         — acc_S ≥ 1 − ε + 0.05
@@ -13,6 +22,8 @@ Tests:
   4. Domain classifier accuracy    — 0.55 ≤ acc_clf ≤ 0.78
   5. Effective sample size ratio   — ess_ratio ≥ 0.50
   6. Quartile spread (concept test)— spread ≥ 0.05
+     (diagnostic only, not counted: OLS slope of y_S on log w; the log reports
+     "covariate shift confirmed" only if slope < -0.2 and p < 0.05)
 
 Also includes a PopQA data loader that splits by subject popularity into
 head (top 60%) and tail (bottom 20%) domains.
@@ -191,7 +202,7 @@ def run_screening_tests(
     classifier_C: float = 1.0,
     w_clip: tuple[float, float] = (0.01, 100.0),
 ) -> dict:
-    """Run the 6-test screening battery on a candidate dataset pair.
+    """Run the screening battery (seven outcomes: T1, T2a, T2b, T3-T6) on a candidate pair.
 
     Args:
         y_S: Binary correctness labels for source (1=correct, 0=wrong).
@@ -202,7 +213,8 @@ def run_screening_tests(
         emb_T: Sentence embeddings for target questions (n_T, D).
         epsilon: Target FDR-E level.
         classifier_C: Logistic regression regularization (inverse).
-        w_clip: (min, max) for clipping raw density ratios.
+        w_clip: (min, max) for clipping raw density ratios (non-binding at the
+            default, since p_hat is already clipped to [0.01, 0.99]).
 
     Returns:
         Dict with all test values, pass/fail flags, and diagnostics.
@@ -211,7 +223,7 @@ def run_screening_tests(
     n_T = len(y_T)
 
     logger.info("=" * 60)
-    logger.info("[SCREENING] Running 6-test screening battery")
+    logger.info("[SCREENING] Running screening battery (7 outcomes)")
     logger.info("  epsilon=%.3f, n_S=%d, n_T=%d, emb_dim=%d",
                 epsilon, n_S, n_T, emb_S.shape[1])
     logger.info("  classifier_C=%.2f, w_clip=(%.2f, %.2f)",
@@ -344,7 +356,7 @@ def run_screening_tests(
         logger.info("  note: target-like source points are harder — covariate shift signal")
     logger.info("  result: %s", "PASS" if pass_6 else "FAIL")
 
-    # ── Test 6 strong form: logistic regression of y_S on log(w) ──
+    # ── Test 6 strong form (diagnostic, not counted): OLS (linear-probability) fit of y_S on log(w) ──
     log_w = np.log(w + 1e-9)
     slope, intercept, r_value, p_value, std_err = scipy_stats.linregress(log_w, y_S)
     logger.info("")

@@ -1,20 +1,29 @@
 """Method 3: DS-SGen with Importance Reweighting.
 
-Extends SGen-Semi (Lee et al., NeurIPS 2024) with density-ratio-based importance
-weighting from DS-CP (Lin et al., 2025). Calibration samples are reweighted by
-estimated P_target(x)/P_cal(x) so that the conformal threshold and PAC bounds
-are calibrated for the shifted test domain.
+Extends the simplified SGen-Semi-style baseline of sgen_semi.py (Method 1) with
+density-ratio importance weights, in the spirit of weighted conformal prediction
+(Tibshirani et al., 2019) and DS-CP (Lin et al.). Calibration samples are
+reweighted by an estimate of P_target(x)/P_cal(x).
 
 Pipeline:
   1. Embed all prompts with a sentence transformer (all-MiniLM-L6-v2).
-  2. Train a logistic regression domain classifier on embeddings.
-  3. Convert classifier probabilities to density-ratio importance weights.
-  4. Use weighted conformal prediction for pseudo-labeling.
-  5. Use weighted Clopper-Pearson bounds (via effective sample size) for PAC-FDR.
+  2. Logistic-regression domain classifier (cal = 0, shifted = 1); 5-fold CV
+     accuracy is a diagnostic, then the classifier is refit on ALL embeddings
+     and its in-sample predictions on the calibration set give the weights.
+  3. p_hat clipped to [0.01, 0.99]; raw odds p_hat / (1 - p_hat); capped at their
+     95th percentile; normalised so the weights sum to n. Computed once and
+     shared by all splits.
+  4. Weighted conformal threshold on the correct answers of Z_E. This is a
+     plug-in weighted quantile: it omits the test-point mass at +inf used by
+     Tibshirani et al., so their coverage guarantee does not apply directly.
+  5. Clopper-Pearson bound evaluated at the weighted failure rate and the Kish
+     effective sample size n_eff = (sum w)^2 / sum w^2 of the selected Z_U
+     items. This is a heuristic design-effect adjustment, not a proven bound.
+  Evaluation on the test sets is unweighted.
 
 Paper references:
   - Lee et al., "Selective Generation for Controllable LMs" (NeurIPS 2024)
-  - Lin et al., "Domain-Shift-Aware Conformal Prediction for LLMs" (arXiv 2025)
+  - Lin et al., "Domain-Shift-Aware Conformal Prediction for Large Language Models"
   - Tibshirani et al., "Conformal Prediction Under Covariate Shift" (NeurIPS 2019)
 """
 
@@ -116,7 +125,7 @@ def compute_importance_weights(
     # Raw density ratio
     raw_weights = p_hat / (1.0 - p_hat)
 
-    # Clip extreme weights
+    # Cap extreme weights (clip_val is on the raw-odds scale, before normalisation)
     clip_val = np.percentile(raw_weights, clip_percentile)
     clipped_weights = np.minimum(raw_weights, clip_val)
 
@@ -155,6 +164,8 @@ def _weighted_conformal_threshold(
         sum(w_i * 1{s_i <= q}) / sum(w_i) >= epsilon_e
 
     This is the weighted analog of _compute_conformal_threshold from sgen_semi.
+    No test-point mass is added (cf. Tibshirani et al., 2019), so this is a
+    plug-in weighted quantile without their finite-sample coverage guarantee.
     """
     n = len(correct_scores)
     if n == 0:
@@ -402,7 +413,7 @@ def _run_single_split(
     indomain_result = _evaluate(indomain_test, best_tau1, best_tau2)
     shifted_result = _evaluate(shifted_merged, best_tau1, best_tau2)
 
-    # n_eff for the full Z_U (diagnostic)
+    # Kish n_eff over all of this split's Z_U (diagnostic; not over all calibration data)
     n_eff_total = (z_u_weights.sum()) ** 2 / (z_u_weights ** 2).sum()
 
     return {

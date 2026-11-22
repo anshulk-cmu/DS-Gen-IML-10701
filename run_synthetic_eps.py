@@ -1,8 +1,13 @@
 """Final covariate-shift experiment — epsilon sweep + concept-shift control.
 
+No API calls and no GPU: it uses the cached synth_qa_* pool and TQA/NQ caches,
+but it re-runs the 500-split evaluations and OVERWRITES tracked files.
+
 Pipeline:
-  Step 1: delete prior synthetic_a_*/synth_a_*/synthetic_a_pair_indices.json
-          (keeps the generated 1831-item pool at cache/synth_qa_*)
+  Step 1: delete prior synthetic_a_*/synthetic_final_* results, synth_a_* caches,
+          synthetic_a_pair_indices.json and plots/synthetic_{a,final}_*.png
+          (keeps the generated 1831-item pool at cache/synth_qa_*). The earlier
+          alpha-sweep record (synthetic_a_screening_sweep.json) is deleted here.
   Step 2: reconstruct the synthetic source/target pair (accuracy_sorted partition)
   Step 3: epsilon sweep on the synthetic pair (M1 + M3)
   Step 4: epsilon sweep on TQA -> NQ (M1 + M3, concept-shift baseline)
@@ -120,7 +125,9 @@ def reconstruct_pair(cfg, merged, embeddings, logger):
     logger.info("Step 2: reconstruct synthetic pair (K=%d, n=%d, partition=%s)",
                 K, n_side, partition_strategy)
 
-    # Pick alpha = 0.75 (the screening-optimal from the accuracy_sorted sweep)
+    # alpha = 0.75 was picked by pick_best_alpha (max screening passes) in
+    # run_synthetic_a.py; that sweep's JSON was removed by cleanup_prior_runs and
+    # is not in the repo. configs/default.yaml has no final_alpha key.
     alpha = sa.get("final_alpha", 0.75)
     pair = build_synthetic_pair(
         merged, embeddings,

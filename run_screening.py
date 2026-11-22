@@ -1,6 +1,6 @@
 """Screening pre-flight for PopQA head→tail dataset pair.
 
-Runs the 6-test screening battery to determine whether this pair has the
+Runs the screening battery (seven pass/fail outcomes) to judge whether this pair has the
 right shift structure for DS-SGen importance reweighting to succeed.
 
 Pipeline:
@@ -8,7 +8,7 @@ Pipeline:
   Stage 2: Generate GPT-4o-mini responses (greedy + K=5 sampled).
   Stage 3: Score correctness + self-consistency with DeBERTa.
   Stage 4: Embed questions with all-MiniLM-L6-v2.
-  Stage 5: Run 6-test screening battery, print scorecard.
+  Stage 5: Run the screening battery, print scorecard.
 
 Reuses existing ds_sgen modules for generation, entailment, and embedding.
 All intermediate results are cached — safe to re-run.

@@ -1,10 +1,14 @@
 # Synthetic Covariate-Shift Experiment — Complete Analysis
 
 **Date:** 2026-04-21
-**Authors:** Anshul Kumar, Justin Luan (CMU 10-701 IML, Spring 2026)
+**Authors:** Anshul Kumar, Justin Luan (Carnegie Mellon University)
 **Experiment batch:** Design A (synthetic QA pool) + Epsilon sweep
 **SLURM job IDs:** 7346859 (first attempt, crashed), 7350272 (redesign, Design A accepted), 7352717 (final epsilon sweep, all 4 criteria passed)
-**Artifacts covered:** [`cache/synth_qa_*`](../../../data/user_data/anshulk/dsgen/cache/), [`cache/synthetic_a_pair_indices.json`](../../../data/user_data/anshulk/dsgen/cache/synthetic_a_pair_indices.json), [`results/synthetic_final_*.json`](../../../data/user_data/anshulk/dsgen/results/), [`plots/synthetic_final_*.png`](../plots/)
+**Artifacts covered:** [`cache/synth_qa_*`](../data/cache/), [`cache/synthetic_a_pair_indices.json`](../data/cache/synthetic_a_pair_indices.json), [`results/synthetic_final_*.json`](../data/results/), [`plots/synthetic_final_*.png`](../plots/)
+
+> **Historical development notes, not the paper.** This document was written during the project, before the paper, and is kept for transparency. Parts of it are out of date or wrong. Where it disagrees with the paper, the paper and the cached results in `data/` are authoritative. Method 1 (`ds_sgen/sgen_semi.py`) is a simplified SGen-Semi-style baseline, not a faithful reimplementation of Lee et al. (2024); see its module docstring. Paths written as `cache/...` and `results/...` mean `data/cache/...` and `data/results/...`; source line numbers cited here may have drifted.
+>
+> Known stale or incorrect content in this file: the strong-T6 slope of -0.050 (p = 0.005) is negative and significant but does not meet the code's -0.2 rule for "covariate shift confirmed"; the screening weights have no 95th-percentile cap (the [0.01, 100] clip never binds); alpha = 0.75 was chosen by maximising screening passes and the alpha-sweep record was deleted by `cleanup_prior_runs`, so that choice cannot be audited from the repo; the screening thresholds were set after observing the TQA->NQ failure, so the synthetic pair is not an independent test of them.
 
 **Purpose of this document.** Record the complete end-to-end reasoning, design choices, implementation, and empirical results of the synthetic covariate-shift experiment — the positive control for the DS-SGen method and the screening protocol. This supersedes nothing: earlier analyses of Method 1 ([docs/method1_baseline_analysis.md](method1_baseline_analysis.md)), Method 2 ([docs/method2_conservative_analysis.md](method2_conservative_analysis.md)), Method 3 ([docs/method3_importance_weighted_analysis.md](method3_importance_weighted_analysis.md)), and PopQA screening ([docs/screening_analysis_popqa.md](screening_analysis_popqa.md)) remain canonical for their respective scopes. This document covers the methodological and empirical bridge between "no natural dataset satisfies the covariate-shift assumption" and "on a pair that does, DS-SGen strictly dominates the baseline at tight PAC levels."
 
@@ -119,8 +123,8 @@ is to produce a single, clean, reproducible case where M1 fails and M3 holds,
 on a pair whose shift type has been independently certified by the 7-test
 screening protocol.
 
-**The obstacle.** Every natural dataset pair we had access to within the
-10-701 deadline budget turned out, under the screening protocol, to be
+**The obstacle.** Every natural dataset pair we had access to within our
+time budget turned out, under the screening protocol, to be
 dominated by concept shift rather than covariate shift. Specifically:
 
 - TriviaQA → NQ-Open exhibits a quartile-weight slope of $-0.084$ (source-like
@@ -354,7 +358,7 @@ This made the positive-control construction — a pair designed to satisfy the s
 
 The options on the table when we began this experiment:
 
-1. **Find another natural dataset.** Budget-constrained (we had under a week to the deadline) and unlikely to succeed: if the two strongest candidates (TQA/NQ, PopQA) both fail, more natural candidates probably will too. The underlying reason — that question-style covariates are confounded with model knowledge — is not specific to these two datasets.
+1. **Find another natural dataset.** Budget-constrained (little time remained) and unlikely to succeed: if the two strongest candidates (TQA/NQ, PopQA) both fail, more natural candidates probably will too. The underlying reason — that question-style covariates are confounded with model knowledge — is not specific to these two datasets.
 2. **Relax the screening protocol.** Raise the T3 ceiling or loosen T6. Defeats the purpose of the screening protocol: if we relax the protocol until something passes, we're fitting the protocol to the data, not using the protocol to validate the method.
 3. **Synthesize the pair.** Construct a dataset where the shift *is* covariate by design, and run the full evaluation. Has the side effect of producing a dataset that can serve as a positive control for the protocol itself.
 4. **Accept the method is inapplicable in our regime.** Report the negative result and call it a day. This would have been scientifically honest but would leave the method's positive case untested.
@@ -383,7 +387,7 @@ We chose **Design A** because of three properties:
 2. **Same answer format as TQA.** Short factual reference answers (1–5 words); the existing entailment pipeline works unchanged.
 3. **Pool size sufficient for screening.** We can target ~2000–3000 items, well above the ~1600 required for $n_S + n_T = 1000 + 1000$ in the screening protocol.
 
-The user selected Design A through the AskUserQuestion interface with explicit "Recommended" labeling for the epsilon-sweep crossover path as the validation strategy.
+We selected Design A, with the epsilon-sweep crossover as the validation strategy.
 
 ### 4.2 Topic and difficulty-tier taxonomy
 
@@ -583,7 +587,7 @@ The existing `compute_embeddings` function at [ds_sgen/importance_weighted.py:41
 compute_embeddings(
     questions=[r["question"] for r in records],
     model_name="all-MiniLM-L6-v2",
-    cache_folder="/data/user_data/anshulk/dsgen/model_cache",
+    cache_folder="data/model_cache",
 )
 ```
 
@@ -591,14 +595,14 @@ Output: (1831, 384) float32 array, saved to `cache/synth_qa_embeddings.npy`. Wal
 
 ### 4.9 Pool statistics
 
-The final pool, as cached in [cache/synth_qa_data.json](../../../data/user_data/anshulk/dsgen/cache/synth_qa_data.json) (470 KB), has:
+The final pool, as cached in [cache/synth_qa_data.json](../data/cache/synth_qa_data.json) (470 KB), has:
 
 - **N = 1831 records** (after filter + dedupe from 2400 raw)
 - **Schema per record:** `{idx: int, question: str, reference_answer: str, all_answers: [str], dataset: "synth_qa", topic: str, tier: int}`
 
 **Overall accuracy: 0.791** (from the entailment cache).
 
-Per-topic marginals (from [synth_qa_entailment.json](../../../data/user_data/anshulk/dsgen/cache/synth_qa_entailment.json), aggregated):
+Per-topic marginals (from [synth_qa_entailment.json](../data/cache/synth_qa_entailment.json), aggregated):
 
 | Topic | n | Accuracy |
 |---|---|---|
@@ -843,7 +847,7 @@ Each step:
 
 **α = 0.75** is the value chosen at the original sweep (from the first successful run) as the screening-optimal balance of (a) high enough accuracy gap and quartile spread to pass T3 and T6, (b) low enough classifier separability to stay under T4's 0.78 ceiling, (c) high enough effective sample size to clear T5's 0.50 floor. It is stored in the config `synthetic_a.final_alpha`.
 
-**Source topic composition** (from [cache/synthetic_a_pair_indices.json](../../../data/user_data/anshulk/dsgen/cache/synthetic_a_pair_indices.json)):
+**Source topic composition** (from [cache/synthetic_a_pair_indices.json](../data/cache/synthetic_a_pair_indices.json)):
 
 | Topic | Source (800) | Target (800) |
 |---|---|---|
@@ -876,7 +880,7 @@ Tiers are nearly balanced between source and target, as they should be — the a
 
 We run the 7-test screening battery ([ds_sgen/screening.py:183](../ds_sgen/screening.py#L183), `run_screening_tests`) at ε = 0.25 on the constructed pair. This ε is the default from the Lee et al. paper's main experimental setting and is what the screening thresholds are calibrated for. The ε sweep in §8 uses the same pair but varies ε for the actual method comparison; the screening is only run once, at the protocol's canonical ε.
 
-All numbers below are from [results/synthetic_final_screening.json](../../../data/user_data/anshulk/dsgen/results/synthetic_final_screening.json) and cross-checked against the SLURM log of job 7352717 lines 55–125.
+All numbers below are from [results/synthetic_final_screening.json](../data/results/synthetic_final_screening.json) and cross-checked against the SLURM log of job 7352717 lines 55–125.
 
 ### 7.1 T1 — source accuracy floor
 
@@ -970,7 +974,7 @@ A *negative* slope (−0.050) and highly significant p-value confirms the quarti
 
 ### 7.7 Scorecard summary (7/7 pass)
 
-Full scorecard from [results/synthetic_final_screening.json](../../../data/user_data/anshulk/dsgen/results/synthetic_final_screening.json):
+Full scorecard from [results/synthetic_final_screening.json](../data/results/synthetic_final_screening.json):
 
 ```
 Test                     Value                Threshold           Result
@@ -1025,7 +1029,7 @@ The sweep is orchestrated by [run_synthetic_eps.py](../run_synthetic_eps.py), wh
 
 ### 8.4 Full numerical table: synthetic
 
-From [results/synthetic_final_eps_sweep.json](../../../data/user_data/anshulk/dsgen/results/synthetic_final_eps_sweep.json):
+From [results/synthetic_final_eps_sweep.json](../data/results/synthetic_final_eps_sweep.json):
 
 ```
 eps      M1 val   M1 eff   M1 fdr   M1 vac    M3 val   M3 eff   M3 fdr   M3 vac    M3 nonvac  M3 nv_val
@@ -1116,7 +1120,7 @@ From [ds_sgen/screening.py:391-433](../ds_sgen/screening.py#L391-L433), run_scre
 
 **Computation:** sort source points by weight ascending, divide into 4 equal quartiles (Q1 = lowest, Q4 = highest), compute mean entailment label per quartile.
 
-The weight-quartile diagnostic is independent of the specific ε — it's a property of the pair, not a function of the FDR-E target. We compute it once at ε = 0.25 for each pair and persist in [results/synthetic_final_weight_quartile.json](../../../data/user_data/anshulk/dsgen/results/synthetic_final_weight_quartile.json).
+The weight-quartile diagnostic is independent of the specific ε — it's a property of the pair, not a function of the FDR-E target. We compute it once at ε = 0.25 for each pair and persist in [results/synthetic_final_weight_quartile.json](../data/results/synthetic_final_weight_quartile.json).
 
 ### 9.2 Synthetic pair: Q1 > Q4 (covariate signature)
 
@@ -1344,7 +1348,7 @@ The plan specified four success criteria. Each was programmatically verified by 
 - $Q_1 - Q_4 = 0.100$ ≥ 0.05 ✓
 - gap = 0.050, $0.03 \le 0.050 \le 0.15$ ✓
 
-**Source:** [results/synthetic_final_screening.json](../../../data/user_data/anshulk/dsgen/results/synthetic_final_screening.json).
+**Source:** [results/synthetic_final_screening.json](../data/results/synthetic_final_screening.json).
 
 PASS.
 
@@ -1356,7 +1360,7 @@ PASS.
 - synthetic: Q1 − Q4 = 0.100 ≥ 0.05 ✓
 - tqa_nq: Q1 − Q4 = −0.084 < 0 ✓
 
-**Source:** [results/synthetic_final_weight_quartile.json](../../../data/user_data/anshulk/dsgen/results/synthetic_final_weight_quartile.json).
+**Source:** [results/synthetic_final_weight_quartile.json](../data/results/synthetic_final_weight_quartile.json).
 
 PASS.
 
@@ -1366,7 +1370,7 @@ PASS.
 
 **Measured:** ε = 0.15 satisfies both (M1 = 0.922, M3 = 1.000). No other ε in the sweep satisfies both.
 
-**Source:** [results/synthetic_final_eps_sweep.json](../../../data/user_data/anshulk/dsgen/results/synthetic_final_eps_sweep.json), `synthetic` array.
+**Source:** [results/synthetic_final_eps_sweep.json](../data/results/synthetic_final_eps_sweep.json), `synthetic` array.
 
 PASS.
 
@@ -1827,7 +1831,7 @@ The accuracy_sorted partition at α = 0.75 produces the observed source-target c
 
 ### D. Per-epsilon detailed metrics
 
-Full JSON excerpt from [results/synthetic_final_eps_sweep.json](../../../data/user_data/anshulk/dsgen/results/synthetic_final_eps_sweep.json), with all fields expanded.
+Full JSON excerpt from [results/synthetic_final_eps_sweep.json](../data/results/synthetic_final_eps_sweep.json), with all fields expanded.
 
 **Synthetic pair, ε = 0.150 (the crossover):**
 
@@ -1896,9 +1900,9 @@ Exact script used to assert all 4 criteria, reproducible from the repo:
 ```python
 import json
 
-sc = json.load(open("/data/user_data/anshulk/dsgen/results/synthetic_final_screening.json"))
-sw = json.load(open("/data/user_data/anshulk/dsgen/results/synthetic_final_eps_sweep.json"))
-wq = json.load(open("/data/user_data/anshulk/dsgen/results/synthetic_final_weight_quartile.json"))
+sc = json.load(open("data/results/synthetic_final_screening.json"))
+sw = json.load(open("data/results/synthetic_final_eps_sweep.json"))
+wq = json.load(open("data/results/synthetic_final_weight_quartile.json"))
 
 # 1. Screening
 assert sum(sc[f"pass_{k}"] for k in ["1","2a","2b","3","4","5","6"]) == 7
@@ -1930,7 +1934,7 @@ All assertions pass.
 ### F. Artifact inventory with file sizes
 
 ```
-Caches (/data/user_data/anshulk/dsgen/cache/):
+Caches (data/cache/):
   synth_qa_data.json              470,430 bytes   (1831 records)
   synth_qa_generations.json     6,959,977 bytes   (1831 per-item dicts)
   synth_qa_entailment.json      1,057,625 bytes   (1831 entailment dicts)
@@ -1945,7 +1949,7 @@ Caches (/data/user_data/anshulk/dsgen/cache/):
   synth_a_target_entailment.json    461,709 bytes
   synth_a_target_embeddings.npy   1,228,928 bytes
 
-Results (/data/user_data/anshulk/dsgen/results/):
+Results (data/results/):
   synthetic_final_screening.json          861 bytes  (scorecard)
   synthetic_final_eps_sweep.json        6,494 bytes  (5 eps × 2 conditions × 2 methods)
   synthetic_final_weight_quartile.json    571 bytes  (Q1..Q4 for both pairs)
@@ -1995,7 +1999,7 @@ Job 7346859  (Design A, first attempt)
   Started:      2026-04-21 18:00 EDT
   Ended:        2026-04-21 19:06 EDT  (elapsed 1h 5m 50s)
   Exit status:  FAILED (ValueError on pair construction)
-  Node:         babel-v9-??
+  Node:         <node>
   Stages completed: Stage 0 (generation), Stage 1 (OpenAI), Stage 2 (DeBERTa)
   Stages failed:    Stage 4 (pair construction — pool_size < n_S + n_T)
   Caches populated: synth_qa_data.json, synth_qa_generations.json, synth_qa_entailment.json, synth_qa_embeddings.npy
@@ -2006,7 +2010,7 @@ Job 7350272  (Design A, retry with accuracy_sorted partition)
   Started:      2026-04-21 19:03 EDT
   Ended:        2026-04-21 19:05 EDT  (elapsed 1m 42s)
   Exit status:  COMPLETED (exit 0)
-  Node:         babel-t9-32
+  Node:         <node>
   Stages completed: Stages 3-7 (generation skipped via cache)
   Caches populated: synth_a_source_*, synth_a_target_*, synthetic_a_pair_indices.json
   Results:         synthetic_a_screening.json, synthetic_a_m1/m2/m3_results.json (later deleted)
@@ -2017,7 +2021,7 @@ Job 7352717  (final ε sweep, the experiment this document analyses)
   Started:      2026-04-21 19:55 EDT
   Ended:        2026-04-21 19:56 EDT  (elapsed 1m 46s)
   Exit status:  COMPLETED (exit 0)
-  Node:         babel-v9-20
+  Node:         <node>
   Stages completed: all (cleanup + pair reconstruction + 5 × 2 × 2 method runs + plot generation)
   Artifacts:       synthetic_final_screening.json, synthetic_final_eps_sweep.json, synthetic_final_weight_quartile.json
   Plots:           synthetic_final_scorecard.png, synthetic_final_weight_quartile.png, synthetic_final_validity_vs_eps.png, synthetic_final_efficiency_vs_eps.png
@@ -2043,7 +2047,7 @@ Job 7352717  (final ε sweep, the experiment this document analyses)
 | Utilities | [ds_sgen/utils.py](../ds_sgen/utils.py) | `load_config`, `set_seed`, `load_cache`, `save_cache`, `get_cache_path` |
 | SLURM scripts | [scripts/run_synthetic_a.sh](../scripts/run_synthetic_a.sh), [scripts/run_synthetic_eps.sh](../scripts/run_synthetic_eps.sh) | (sbatch wrappers) |
 | Config | [configs/default.yaml](../configs/default.yaml) | sections `sgen`, `importance_weighted`, `screening`, `synthetic_a`, `synthetic_eps` |
-| Plan file | [.claude/plans/synthetic-covariate-shift-experiment-refactored-waffle.md](../../.claude/plans/synthetic-covariate-shift-experiment-refactored-waffle.md) | (design document for this experiment) |
+| Plan file | (internal planning notes, not included in the repository) | (design document for this experiment) |
 
 ---
 

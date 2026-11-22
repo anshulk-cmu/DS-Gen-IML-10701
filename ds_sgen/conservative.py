@@ -1,13 +1,18 @@
 """Method 2: Conservative Threshold — naive domain-shift fix for SGen-Semi.
 
-This module is self-contained: it reimplements the SGen-Semi split logic with
-three conservative options, each designed to restore PAC FDR-E validity under
-domain shift at the cost of reduced selection efficiency.
+This module is self-contained: it repeats the split logic of the simplified
+SGen-Semi-style baseline in sgen_semi.py (Method 1) and adds three conservative
+options, each intended to recover FDR-E validity under domain shift at the cost
+of reduced selection efficiency. Only "fm1_only" and "both" selection modes are
+handled ("fm2_only" falls through to "both").
 
 Options:
   A — Safety factor on (tau1, tau2) after grid search.
       tau1 += log(gamma)  (fM1 is log-scale)
       tau2 *= gamma        (fM2 is in [0,1])
+      Degenerate in fm1_only mode: every fM1 <= 0 and the learned tau1 is close
+      to 0, so any gamma > 1 (log 1.2 = 0.18) puts tau1 above every score and the
+      split selects nothing (validity 1, efficiency 0 by construction).
 
   B — Reduced epsilon in the grid search constraint.
       Use epsilon_eff = epsilon / k instead of epsilon.

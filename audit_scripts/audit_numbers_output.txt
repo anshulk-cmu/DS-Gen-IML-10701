@@ -1,0 +1,169 @@
+
+======== Dataset sizes and accuracy (N002,N003,N006,N007) ========
+NQ n_data 3610 n_gen 3610 n_ent 3610 correct 1556 acc 0.4310249307479224
+TQA n_data 3610 n_gen 3610 n_ent 3610 correct 2557 acc 0.7083102493074792
+NQ questions with >1 gold answer (only answer[0] used as reference): 1534
+TQA mean #answers incl aliases (only primary used): 13.62382271468144
+
+======== Greedy generation facts (N004,N005,N019) ========
+NQ samples per q: {5: 3610} max greedy tokens: 143 mean greedy tokens: 23.390858725761774 mean_logprob==mean(token_logprobs): True
+TQA samples per q: {5: 3610} max greedy tokens: 79 mean greedy tokens: 18.288642659279777 mean_logprob==mean(token_logprobs): True
+
+======== FER feasibility: entail_label==0 with high entail_score ========
+NQ max score among label 0: 0.48143595457077026 min score among label 1: 0.3892195224761963 #label0 with score>=0.45: 31 #label0 with score>=0.5: 0
+TQA max score among label 0: 0.4855152666568756 min score among label 1: 0.358777791261673 #label0 with score>=0.45: 42 #label0 with score>=0.5: 0
+
+======== Split sizes (N027) and grid size H (N029) ========
+cal_size Counter({2527: 500}) zu Counter({1895: 500}) ze Counter({632: 500}) H Counter({20: 500}) in-domain n_total Counter({1083: 500})
+floor(3610*0.7)= 2527  floor(2527*0.75)= 1895
+alpha_adj = (0.02-1e-5)/20 = 0.0009995
+tau_cp across splits: min 0.4726833701133728 median 0.49648648500442505 max 0.5232515931129456 #splits tau_cp<0.5: 372
+TQA items with e=0 & s>=tau_cp (pool-wide, per split): max 12 mean 0.122
+
+======== Table 1 M1 rows ========
+M1 indomain {'validity': 1.0, 'mean_fdr': 0.14722458097722843, 'std_fdr_json': 0.05875277542659683, 'std_fdr_ddof0': np.float64(0.05875277542659683), 'std_fdr_ddof1': np.float64(0.05881161647832601), 'mean_eff': 0.4078208679593721, 'std_eff_json': 0.17875075579384475, 'std_eff_ddof0': np.float64(0.17875075579384475), 'std_eff_ddof1': np.float64(0.1789297751234326), 'recomputed_validity': 1.0, 'recomputed_mean_fdr': np.float64(0.14722458097722843), 'recomputed_mean_eff': np.float64(0.4078208679593721)}
+M1 shifted {'validity': 0.124, 'mean_fdr': 0.3015007903882835, 'std_fdr_json': 0.1175700722831159, 'std_fdr_ddof0': np.float64(0.1175700722831159), 'std_fdr_ddof1': np.float64(0.11768781900494792), 'mean_eff': 0.22872908587257618, 'std_eff_json': 0.10874771098595615, 'std_eff_ddof0': np.float64(0.10874771098595615), 'std_eff_ddof1': np.float64(0.10885662209085449), 'recomputed_validity': 0.124, 'recomputed_mean_fdr': np.float64(0.3015007903882835), 'recomputed_mean_eff': np.float64(0.22872908587257618)}
+
+======== M1 vacuous analysis (C2) ========
+#tau1 None: 62  #NQ n_sel==0: 62  #TQA-test n_sel==0: 62
+tau1None == NQ zero: True  tau1None == TQA zero: True
+NQ valid total 62  valid among non-vacuous 0 of 438
+TQA in-domain valid among non-vacuous 438 of 438 = 1.0
+NQ splits with fdr_e==0: 62  min non-vacuous NQ fdr: 0.2534435261707989  mean non-vac NQ fdr: 0.3441789844615108
+Fig10 legend valid frac TQA: 1.0  NQ: 0.124
+
+======== Fig 19 tau1 stability ========
+n 438 mean -0.03523018341393972 median -0.03564102574876861 std 0.01064350406361703 IQR 0.0128009502640678
+
+======== Fig 13 abstention analysis (M1 median tau1 on NQ) ========
+median tau -0.03564102574876861 selected 950 0.2631578947368421 sel correct 622 0.6547368421052632 sel wrong 328 abst 2660 0.7368421052631579 abst correct 934 0.3511278195488722 abst wrong 1726 overall 0.4310249307479224
+M3 median tau1 over committed splits: -0.03068669775613761  n 156
+
+======== Table 1 M3 rows ========
+M3 indomain {'validity': 1.0, 'mean_fdr': 0.05316501021978336, 'std_fdr_json': 0.08012999038045672, 'std_fdr_ddof0': np.float64(0.08012999038045672), 'std_fdr_ddof1': np.float64(0.08021024076649892), 'mean_eff': 0.14159372114496768, 'std_eff_json': 0.2236482104308881, 'std_eff_ddof0': np.float64(0.2236482104308881), 'std_eff_ddof1': np.float64(0.22387219467373537), 'recomputed_validity': 1.0, 'recomputed_mean_fdr': np.float64(0.05316501021978336), 'recomputed_mean_eff': np.float64(0.14159372114496768)}
+M3 shifted {'validity': 0.688, 'mean_fdr': 0.10647061511890658, 'std_fdr_json': 0.1602162974956661, 'std_fdr_ddof0': np.float64(0.1602162974956661), 'std_fdr_ddof1': np.float64(0.16037675451885097), 'mean_eff': 0.08106204986149583, 'std_eff_json': 0.13468891297777197, 'std_eff_ddof0': np.float64(0.13468891297777197), 'std_eff_ddof1': np.float64(0.1348238042614318), 'recomputed_validity': 0.688, 'recomputed_mean_fdr': np.float64(0.10647061511890658), 'recomputed_mean_eff': np.float64(0.08106204986149583)}
+#tau1 None 344 #NQ zero 344 #TQA zero 344 NQ valid among committed 0 of 156 mean non-vac NQ FDR 0.341251971534957 min non-vac NQ FDR 0.25501432664756446 TQA valid among non-vac 156 of 156
+Fig12 outcomes: abstain 344 valid answering 0 invalid 156
+weight_stats {'n': 3610, 'n_eff': 1112.5391320732213, 'n_eff_ratio': 0.30818258506183416, 'clip_percentile': 95, 'clip_value': 1.4026519353996985, 'weight_min': 0.04099130204084814, 'weight_median': 0.3321283344380297, 'weight_max': 5.692156385072775, 'weight_std': 1.498275570005035, 'raw_weight_max': 32.65899497806104}
+mean n_eff across splits 584.2601772646885 /1895 = 0.3083167162346641
+weight_max/clip_value = n/sum(clipped raw) = 4.058138902043965 => mean clipped raw weight 0.24641837653618248
+n_eff_selected for committed splits: min 128.13753437031022 median 267.30813223402174
+M3 classifier CV 0.9174515235457065
+Fig12 eff mean 0.08106204986149583
+
+======== Table 6 / M2 ========
+option_a 1.0 sh val 0.124 sh fdr 0.3015007903882835 sh eff 0.22872908587257618 | id val 1.0 id eff 0.4078208679593721
+option_a 1.2 sh val 1.0 sh fdr 0.0 sh eff 0.0 | id val 1.0 id eff 0.0
+option_a 1.5 sh val 1.0 sh fdr 0.0 sh eff 0.0 | id val 1.0 id eff 0.0
+option_a 2.0 sh val 1.0 sh fdr 0.0 sh eff 0.0 | id val 1.0 id eff 0.0
+option_b 1.0 sh val 0.124 sh fdr 0.3015007903882835 sh eff 0.22872908587257618 | id val 1.0 id eff 0.4078208679593721
+option_b 1.5 sh val 1.0 sh fdr 0.0 sh eff 0.0 | id val 1.0 id eff 0.0
+option_b 2.0 sh val 1.0 sh fdr 0.0 sh eff 0.0 | id val 1.0 id eff 0.0
+option_b 3.0 sh val 1.0 sh fdr 0.0 sh eff 0.0 | id val 1.0 id eff 0.0
+option_b 4.0 sh val 1.0 sh fdr 0.0 sh eff 0.0 | id val 1.0 id eff 0.0
+option_c 0.0 sh val 0.124 sh fdr 0.3015007903882835 sh eff 0.22872908587257618 | id val 1.0 id eff 0.4078208679593721
+option_c 0.25 sh val 0.138 sh fdr 0.2949954335689145 sh eff 0.22050747922437672 | id val 1.0 id eff 0.3955549399815328
+option_c 0.5 sh val 0.154 sh fdr 0.28687907243876054 sh eff 0.21093684210526314 | id val 1.0 id eff 0.38103231763619566
+option_c 0.75 sh val 0.22 sh fdr 0.2604020042654601 sh eff 0.18495290858725763 | id val 1.0 id eff 0.33766759002770086
+log(1.2) = 0.1823215567939546  max fM1 TQA -8.192452867206157e-08  max fM1 NQ -5.626988613332489e-08  max tau1 M1 -0.009905457633938155
+
+======== Table 7 / Fig 1 / Fig 9 ========
+0.25 M1 0.124 0.22872908587257618 M2 0.22 0.18495290858725763 M3 0.688 0.08106204986149583
+0.3 M1 0.0 0.59916675900277 M2 0.0 0.5671839335180056 M3 0.11 0.46126592797783933
+0.35 M1 0.0 0.8798127423822714 M2 0.0 0.8588587257617728 M3 0.002 0.7997473684210527
+0.4 M1 0.0 0.9995102493074792 M2 0.0 0.9995102493074792 M3 0.0 0.9820509695290859
+
+======== Tables 3 / 11 counts ========
+synthetic 0.05 m1 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+synthetic 0.05 m3 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+synthetic 0.1 m1 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+synthetic 0.1 m3 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+synthetic 0.15 m1 val 0.922 eff 0.07886499999999999 vac 0.822 vac_n 411.0 nv_n 89 nv_valid_n 50.0 nv_val 0.5617977528089888 check (vac+nvvalid)/500 0.922 id_val 1.0 id_eff 0.07971666666666667
+synthetic 0.15 m3 val 1.0 eff 0.008879999999999999 vac 0.978 vac_n 489.0 nv_n 11 nv_valid_n 11.0 nv_val 1.0 check (vac+nvvalid)/500 1.0 id_val 1.0 id_eff 0.009058333333333333
+synthetic 0.2 m1 val 0.996 eff 0.5491775 vac 0.086 vac_n 43.0 nv_n 457 nv_valid_n 455.0 nv_val 0.9956236323851203 check (vac+nvvalid)/500 0.996 id_val 0.996 id_eff 0.5484833333333333
+synthetic 0.2 m3 val 1.0 eff 0.1370425 vac 0.71 vac_n 355.0 nv_n 145 nv_valid_n 145.0 nv_val 1.0 check (vac+nvvalid)/500 1.0 id_val 1.0 id_eff 0.1371
+synthetic 0.25 m1 val 1.0 eff 0.8290725 vac 0.008 vac_n 4.0 nv_n 496 nv_valid_n 496.0 nv_val 1.0 check (vac+nvvalid)/500 1.0 id_val 0.998 id_eff 0.8218499999999999
+synthetic 0.25 m3 val 1.0 eff 0.4798125 vac 0.198 vac_n 99.0 nv_n 401 nv_valid_n 401.0 nv_val 1.0 check (vac+nvvalid)/500 1.0 id_val 1.0 id_eff 0.47939166666666666
+tqa_nq 0.05 m1 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+tqa_nq 0.05 m3 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+tqa_nq 0.1 m1 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+tqa_nq 0.1 m3 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+tqa_nq 0.15 m1 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+tqa_nq 0.15 m3 val 1.0 eff 0.0 vac 1.0 vac_n 500.0 nv_n 0 nv_valid_n None nv_val None check (vac+nvvalid)/500 None id_val 1.0 id_eff 0.0
+tqa_nq 0.2 m1 val 0.982 eff 0.0023634349030470917 vac 0.98 vac_n 490.0 nv_n 10 nv_valid_n 1.0 nv_val 0.1 check (vac+nvvalid)/500 0.982 id_val 0.998 id_eff 0.005047091412742383
+tqa_nq 0.2 m3 val 0.994 eff 0.000754016620498615 vac 0.994 vac_n 497.0 nv_n 3 nv_valid_n 0.0 nv_val 0.0 check (vac+nvvalid)/500 0.994 id_val 1.0 id_eff 0.0015955678670360111
+tqa_nq 0.25 m1 val 0.124 eff 0.22872908587257618 vac 0.124 vac_n 62.0 nv_n 438 nv_valid_n 0.0 nv_val 0.0 check (vac+nvvalid)/500 0.124 id_val 1.0 id_eff 0.4078208679593721
+tqa_nq 0.25 m3 val 0.688 eff 0.08106204986149583 vac 0.688 vac_n 344.0 nv_n 156 nv_valid_n 0.0 nv_val 0.0 check (vac+nvvalid)/500 0.688 id_val 1.0 id_eff 0.14159372114496768
+
+======== Screening: TQA->NQ recomputable entries (T1,T2a,T2b,T3) ========
+acc_S 0.7083102493074792 acc_T 0.4310249307479224 top5_k 180 acc_top5 0.7611111111111111 gap 0.2772853185595568
+weight quartile json {'synthetic': {'Q1': 0.86, 'Q4': 0.76, 'Q1_minus_Q4': 0.09999999999999998, 'quartile_accs': [0.86, 0.825, 0.815, 0.76], 'ess_ratio': 0.5257512330011882, 'acc_clf': 0.6900000000000001}, 'tqa_nq': {'Q1': 0.6445182724252492, 'Q4': 0.7286821705426356, 'Q1_minus_Q4': -0.08416389811738645, 'quartile_accs': [0.6445182724252492, 0.7172949002217295, 0.7427937915742794, 0.7286821705426356], 'ess_ratio': 0.07199111593746867, 'acc_clf': 0.9174515235457065}}
+PopQA recomputed acc_S 0.437 acc_T 0.241 acc_top5 0.64 n 1000 1000
+PopQA json {'acc_S': 0.437, 'acc_T': 0.241, 'acc_top5': 0.64, 'gap': 0.196, 'acc_clf': 0.692, 'ess_ratio': 0.4231395671293628, 'quartile_spread': -0.09200000000000003, 'slope_logw': 0.06526973195745855, 'slope_pvalue': 0.0008024928723433086, 'pass_5': False, 'soft_5': True}
+PopQA head s_pop min 553.0 tail s_pop max 179.0
+synthetic json {'acc_S': 0.815, 'acc_T': 0.765, 'acc_top5': 0.925, 'gap': 0.04999999999999993, 'acc_clf': 0.6900000000000001, 'ess_ratio': 0.5257512330011882, 'n_eff': 420.60098640095055, 'quartile_spread': 0.09999999999999998, 'quartile_accs': [0.86, 0.825, 0.815, 0.76], 'slope_logw': -0.0503512696006438, 'slope_pvalue': 0.004747832935326297}
+code strong-T6 rule (slope<-0.2 and p<0.05): synthetic -> False  PopQA -> False
+PopQA n_pass 1 n_soft(not pass) 1 verdict rule n_pass+n_soft>=6: False
+synthetic n_pass 7 n_soft(not pass) 0 verdict rule n_pass+n_soft>=6: True
+
+======== Fig 5 means, Fig 14, Fig 15 r, Fig 16 AUC ========
+NQ fM1 mean -0.08822775273230427 r(fM1,y) 0.3184573545420292 r(fM2,y) 0.34833956097033997 acc 0.4310249307479224 AUC(plot method) 0.6951620200599244 AUC exact 0.6952219382582859 fM1 range -0.4019344630867229 -5.626988613332489e-08
+TQA fM1 mean -0.05691433168499428 r(fM1,y) 0.34924702008050024 r(fM2,y) 0.37037062681923244 acc 0.7083102493074792 AUC(plot method) 0.7072373808783665 AUC exact 0.7072331097881873 fM1 range -0.47904444143794533 -8.192452867206157e-08
+
+======== Fig 8 deciles and Fig 17 calibration bins ========
+NQ decile rates [np.float64(0.1579), np.float64(0.241), np.float64(0.3075), np.float64(0.3546), np.float64(0.4349), np.float64(0.4183), np.float64(0.4848), np.float64(0.5568), np.float64(0.6066), np.float64(0.7479)] as %: ['16%', '24%', '31%', '35%', '43%', '42%', '48%', '56%', '61%', '75%'] monotone non-decreasing: False decreases at: [5]
+NQ calib counts [361, 361, 361, 361, 361, 361, 361, 361, 361, 361] rates [np.float64(0.1579), np.float64(0.241), np.float64(0.3075), np.float64(0.3546), np.float64(0.4349), np.float64(0.4183), np.float64(0.4848), np.float64(0.5568), np.float64(0.6066), np.float64(0.7479)] centers [np.float64(-0.2416), np.float64(-0.1634), np.float64(-0.1264), np.float64(-0.1013), np.float64(-0.0811), np.float64(-0.0637), np.float64(-0.0483), np.float64(-0.0336), np.float64(-0.0187), np.float64(-0.0043)] monotone: False
+TQA decile rates [np.float64(0.3296), np.float64(0.5346), np.float64(0.6565), np.float64(0.687), np.float64(0.7147), np.float64(0.7784), np.float64(0.831), np.float64(0.8255), np.float64(0.8587), np.float64(0.867)] as %: ['33%', '53%', '66%', '69%', '71%', '78%', '83%', '83%', '86%', '87%'] monotone non-decreasing: False decreases at: [7]
+TQA calib counts [361, 361, 361, 361, 361, 361, 361, 361, 361, 361] rates [np.float64(0.3296), np.float64(0.5346), np.float64(0.6565), np.float64(0.687), np.float64(0.7147), np.float64(0.7784), np.float64(0.831), np.float64(0.8255), np.float64(0.8587), np.float64(0.867)] centers [np.float64(-0.1988), np.float64(-0.1125), np.float64(-0.0793), np.float64(-0.059), np.float64(-0.0441), np.float64(-0.0329), np.float64(-0.0231), np.float64(-0.0134), np.float64(-0.0053), np.float64(-0.0007)] monotone: False
+
+======== Table 8 synthetic pool ========
+pool n 1831 acc 0.7913708356089568 2400 yield 0.7629166666666667
+ topic physics and chemistry 182 0.8681318681318682
+ topic biology and animals 200 0.845
+ topic sports and athletics 177 0.8361581920903954
+ topic world history 160 0.8125
+ topic music and composers 198 0.797979797979798
+ topic literature and authors 177 0.7796610169491526
+ topic visual art and painters 188 0.7712765957446809
+ topic geography 179 0.7541899441340782
+ topic astronomy and space 181 0.7348066298342542
+ topic food and cooking 189 0.7142857142857143
+ tier 1 645 0.7953488372093023
+ tier 2 567 0.7707231040564374
+ tier 3 619 0.8061389337641357
+ cell min/max n 49 79
+
+======== Table 9 composition + partition (C5) ========
+{'alpha': 0.75, 'seed': 42, 'K': 10, 'fm1_cutoff': -0.4332596785193585, 'n_pool': 1831, 'A_topics': [0, 1, 3, 6, 8], 'B_topics': [2, 4, 5, 7, 9], 'source_topic_hist': [105, 109, 46, 66, 50, 57, 155, 50, 124, 38], 'target_topic_hist': [39, 37, 127, 24, 116, 133, 52, 119, 38, 115], 'source_acc': 0.815, 'target_acc': 0.765}
+n_S 800 n_T 800 overlap 0
+ biology and animals          S= 121 T=  45
+ literature and authors       S= 115 T=  36
+ sports and athletics         S= 107 T=  41
+ physics and chemistry        S= 106 T=  48
+ world history                S=  93 T=  42
+ music and composers          S=  57 T= 121
+ astronomy and space          S=  52 T= 106
+ visual art and painters      S=  51 T= 118
+ geography                    S=  50 T= 119
+ food and cooking             S=  48 T= 124
+acc_S 0.815 acc_T 0.765
+cached slice acc 0.815 0.765
+synth emb shape (1831, 384) float32
+KMeans reproduces stored hist: True True
+A (top5 by acc): [0, 1, 3, 6, 8]  B: [2, 4, 5, 7, 9]  stored A [0, 1, 3, 6, 8]  stored B [2, 4, 5, 7, 9]
+ cluster 6: A n=252 acc=0.8571 S=155 T=52 top topics=[(np.str_('physics and chemistry'), 145), (np.str_('biology and animals'), 87), (np.str_('astronomy and space'), 12)]
+ cluster 0: A n=172 acc=0.8372 S=105 T=39 top topics=[(np.str_('sports and athletics'), 168), (np.str_('world history'), 4)]
+ cluster 1: A n=178 acc=0.8202 S=109 T=37 top topics=[(np.str_('world history'), 126), (np.str_('physics and chemistry'), 18), (np.str_('visual art and painters'), 10)]
+ cluster 3: A n=111 acc=0.8108 S=66 T=24 top topics=[(np.str_('biology and animals'), 106), (np.str_('literature and authors'), 4), (np.str_('geography'), 1)]
+ cluster 8: A n=196 acc=0.7908 S=124 T=38 top topics=[(np.str_('literature and authors'), 170), (np.str_('visual art and painters'), 12), (np.str_('music and composers'), 9)]
+ cluster 7: B n=183 acc=0.7814 S=50 T=119 top topics=[(np.str_('music and composers'), 181), (np.str_('geography'), 1), (np.str_('physics and chemistry'), 1)]
+ cluster 9: B n=166 acc=0.7771 S=38 T=115 top topics=[(np.str_('visual art and painters'), 159), (np.str_('world history'), 5), (np.str_('music and composers'), 1)]
+ cluster 5: B n=200 acc=0.7750 S=57 T=133 top topics=[(np.str_('geography'), 175), (np.str_('world history'), 19), (np.str_('astronomy and space'), 2)]
+ cluster 4: B n=183 acc=0.7432 S=50 T=116 top topics=[(np.str_('astronomy and space'), 162), (np.str_('physics and chemistry'), 16), (np.str_('world history'), 2)]
+ cluster 2: B n=190 acc=0.7105 S=46 T=127 top topics=[(np.str_('food and cooking'), 185), (np.str_('visual art and painters'), 2), (np.str_('biology and animals'), 1)]
+literature and authors cluster membership Counter({8: 170, 3: 4, 5: 1, 1: 1, 4: 1})
+music and composers cluster membership Counter({7: 181, 8: 9, 1: 5, 4: 1, 9: 1, 6: 1})
+A mean acc 0.8232408031821972 B mean acc 0.7574449826917679
+
+======== Plots in repo ========
+33 ['abstention_analysis.png', 'answer_length_histogram.png', 'calibration_curve.png', 'correctness_by_fm1_decile.png', 'correctness_rate_by_domain.png', 'cumulative_fdr_curve.png', 'domain_shift_diagnostic.png', 'efficiency_distribution.png', 'entailment_score_histogram.png', 'epsilon_sweep_efficiency.png', 'epsilon_sweep_validity.png', 'fdr_distribution.png', 'fdr_vs_efficiency_scatter.png', 'fm1_boxplot.png', 'fm1_cdf_comparison.png', 'fm1_histogram.png', 'fm1_roc_curve.png', 'fm1_vs_fm2_scatter.png', 'fm2_conditional_on_fm1.png', 'fm2_distribution.png', 'method3_fdr_distribution.png', 'method3_weight_analysis.png', 'results_summary_table.png', 'sampled_answer_diversity.png', 'sampled_logprob_spread.png', 'synthetic_final_efficiency_vs_eps.png', 'synthetic_final_scorecard.png', 'synthetic_final_validity_vs_eps.png', 'synthetic_final_weight_quartile.png', 'three_method_comparison.png', 'threshold_stability.png', 'validity_efficiency_tradeoff.png', 'validity_rate_comparison.png']

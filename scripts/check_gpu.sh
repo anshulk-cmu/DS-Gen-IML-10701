@@ -1,15 +1,16 @@
 #!/bin/bash
 #SBATCH --job-name=dsgen_gpu_check
-#SBATCH --output=/home/anshulk/ds-gen-10701/logs/gpu_check-%j.out
-#SBATCH --error=/home/anshulk/ds-gen-10701/logs/gpu_check-%j.err
+#SBATCH --output=logs/gpu_check-%j.out
+#SBATCH --error=logs/gpu_check-%j.err
 #SBATCH --partition=preempt
 #SBATCH --gres=gpu:A6000:1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
 #SBATCH --time=24:00:00
 #SBATCH --requeue
-#SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=anshulk@andrew.cmu.edu
+# SLURM wrapper used for the paper runs. Submit from the repository root after
+# `mkdir -p logs`. Partition and GPU names are site-specific: adjust them.
+# Assumes a conda env named `dsgen` built from environment.yml.
 
 echo "============================================================"
 echo "dsgen — GPU sanity check"
@@ -19,8 +20,8 @@ echo "Node     : $SLURM_NODELIST"
 echo "Start    : $(date)"
 echo "============================================================"
 
-source /data/user_data/anshulk/miniconda3/etc/profile.d/conda.sh
-conda activate /data/user_data/anshulk/envs/dsgen || { echo "ERROR: failed to activate dsgen"; exit 1; }
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate dsgen || { echo "ERROR: failed to activate dsgen"; exit 1; }
 
 echo "Python : $(which python)"
 echo "GPUs   : $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"

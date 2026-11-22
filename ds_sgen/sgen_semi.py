@@ -1,15 +1,35 @@
-"""SGen-Semi algorithm: conformal pseudo-labeling + PAC-FDR threshold selection.
+"""Method 1 (M1): a simplified SGen-Semi-style baseline.
 
-Implements Algorithm 2 (SGen-Semi) from Lee et al., "Selective Generation for Controllable LMs" (NeurIPS 2024).
+This is NOT a faithful reimplementation of Algorithm 2 (SGen-Semi) of Lee et al.,
+"Selective Generation for Controllable Language Models" (NeurIPS 2024). It keeps
+their idea (conformal pseudo-labels on unlabelled data, then a PAC grid search
+for the selection threshold) but implements only one bound. Per split:
 
-Key formulas:
-  - Conformal threshold: tau_CP from epsilon_e quantile of correct answers' entailment scores
-  - Clopper-Pearson upper bound: beta.ppf(1 - delta_adj, failures + 1, selected - failures)
-  - Bonferroni correction: delta_adj = (delta - delta_p) / |H|
-  - Selection modes: fM1 only, fM2 only, or fM1 AND fM2
+  1. tau_CP = conformal lower quantile, at level epsilon_e, of the NLI entailment
+     probability s = P(ENT) over the correct-answer subset of Z_E
+     (k = ceil((n_c + 1) * epsilon_e), tau_CP = k-th smallest score). For a new
+     correct answer exchangeable with those in Z_E this gives
+     Pr(s < tau_CP | e = 1) <= epsilon_e, marginally over Z_E.
+  2. Pseudo-labels on Z_U: e_hat = 1[s >= tau_CP].
+  3. For each grid point tau in H (|H| = 20 percentiles of f_M1 on Z_U), one
+     Clopper-Pearson upper bound, at level alpha = (delta - delta_p) / |H|, on
+     NER(tau) = Pr(e_hat = 0 | f_M1 >= tau); accept tau if the bound is <= epsilon
+     and return the accepted tau with the largest selection rate. If no tau is
+     accepted, the split abstains on every question (counted as valid, FDR-E 0).
 
-Calibration dataset is configurable (default: TQA, which has higher correctness and
-stronger feature-correctness correlation than NQ for GPT-4o-mini).
+So the code bounds the selected pseudo-label non-entailment rate only (Bonferroni
+over |H|). Lee et al.'s SGen-Semi additionally bounds FER and FNER with labelled
+data, searches over epsilon_E values, and splits delta = delta_W + delta_S + delta_E;
+none of that is implemented here, and delta_p is subtracted but used by no other
+bound. Their Theorem 1 therefore does not transfer to this code, and M1's in-domain
+validity is an empirical observation. Because FDR-E = FER - FNER + NER <= FER + NER
+and e, e_hat are both thresholds of the same NLI output, the NER bound controls the
+NLI-label FDR-E up to the FER term, which can be non-zero only when tau_CP <= 1/2
+(s > 1/2 forces argmax = ENT, i.e. e = 1).
+
+Selection modes: fM1 only (used in all reported results), fM2 only, or fM1 AND fM2.
+The calibration dataset is configurable (reported runs: calibrate on TQA, shifted
+test on NQ).
 """
 
 import numpy as np
@@ -40,8 +60,11 @@ def _compute_conformal_threshold(correct_scores: np.ndarray, epsilon_e: float) -
     """Compute split conformal prediction threshold from correct answers' scores.
 
     tau_CP = epsilon_e quantile of correct answers' entailment scores.
-    This ensures (1 - epsilon_e) of truly correct answers have score >= tau_CP,
-    so pseudo-labeling has low false-negative rate on correct answers.
+    A new correct answer exchangeable with these n scores falls below tau_CP
+    exactly when its rank among the n + 1 scores is at most k, so (without ties)
+    Pr(score < tau_CP) = k / (n + 1), which lies in [epsilon_e, epsilon_e + 1/(n+1)).
+    The marginal guarantee is therefore score >= tau_CP with probability
+    1 - k/(n+1), approximately (not at least) 1 - epsilon_e.
 
     tau_CP = sorted_correct_scores[k-1] where k = ceil((n+1) * epsilon_e).
     Points with score >= tau_CP are pseudo-labeled as "correct".

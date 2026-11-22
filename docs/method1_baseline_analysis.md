@@ -1,7 +1,11 @@
 # Method 1: SGen-Semi Baseline — Complete Analysis
 
 **DS-SGen: Domain-Shift-Aware Selective Generation for Reliable LLMs**
-**Anshul Kumar, Justin Luan — Carnegie Mellon University, 10-701, Spring 2026**
+**Anshul Kumar, Justin Luan — Carnegie Mellon University**
+
+> **Historical development notes, not the paper.** This document was written during the project, before the paper, and is kept for transparency. Parts of it are out of date or wrong. Where it disagrees with the paper, the paper and the cached results in `data/` are authoritative. Method 1 (`ds_sgen/sgen_semi.py`) is a simplified SGen-Semi-style baseline, not a faithful reimplementation of Lee et al. (2024); see its module docstring. Paths written as `cache/...` and `results/...` mean `data/cache/...` and `data/results/...`; source line numbers cited here may have drifted.
+>
+> Known stale content in this file: early sections describe NQ as the calibration set and TQA as the shifted set (the reported runs calibrate on TQA and test on NQ), a 50x50 (tau1, tau2) grid (the reported runs use fM1 only, |H| = 20), epsilon_e = 0.10 (config: 0.05), TQA accuracy 71.6% (cached data: 70.8%), and "499/500 splits" (in the reported run 62 of 500 splits find no threshold, and these 62 splits are the whole of M1's 12.4% NQ validity).
 
 This document records every decision, every number, every piece of math, and every
 result from the Method 1 baseline implementation. It is the truth document for the
@@ -1036,14 +1040,14 @@ acceptable. The SGen paper uses Bonferroni.
 | FDR-E target | ε | 0.25 | SGen Table 1 | Max fraction of wrong answers among selected |
 | PAC confidence | δ | 0.02 | SGen experiments | P{FDR-E ≤ ε} ≥ 1-δ = 98% |
 | Pseudo-label failure prob | δ_p | 1e-5 | SGen default | Subtracted from δ before Bonferroni |
-| Conformal error rate | ε_e | 0.10 | SGen default | Controls pseudo-label quality |
-| Calibration fraction | cal_frac | 0.70 | SGen experimental design | 70% NQ for calibration, 30% for in-domain test |
+| Conformal error rate | ε_e | 0.05 | Stricter than the SGen default (0.10) | Controls pseudo-label quality |
+| Calibration fraction | cal_frac | 0.70 | SGen experimental design | 70% of TQA (the calibration set) for calibration, 30% for in-domain test |
 | Unlabeled fraction | zu_frac | 0.75 | SGen experimental design | 75% of calibration as Z_U, 25% as Z_E |
 | Sampled responses | K | 5 | SGen; Kuhn et al. | Number of samples for fM2 |
 | Temperature | T | 0.7 | SGen default | Sampling temperature for K responses |
 | Random splits | n_splits | 500 | SE ≈ 0.021 at p=0.35 | Number of random calibration splits |
 | Grid points per score | n_grid | 20 | Percentile-based; fm1_only mode | |H| = 20 candidates |
-| Max new tokens | — | 100 | Sufficient for 1-sentence answers | Generation length limit |
+| Max new tokens | — | 512 | `generate_responses.py` (greedy and sampled); longest cached greedy answer 143 tokens | Generation length limit |
 | NLI batch size | — | 64 | VRAM-constrained (~6 GB at batch 64) | DeBERTa inference batch |
 | Gen save frequency | — | 50 | Incremental caching | Save every 50 questions during generation |
 | Seed | — | 42 | Reproducibility | Base seed for all RNG |
@@ -1136,8 +1140,8 @@ the same 3,610 questions are selected every time.
 ### Cache locations (actual)
 
 ```
-/data/user_data/anshulk/dsgen/cache/nq_data.json     (792 KB, 3,610 records)
-/data/user_data/anshulk/dsgen/cache/tqa_data.json     (2.1 MB, 3,610 records)
+data/cache/nq_data.json     (792 KB, 3,610 records)
+data/cache/tqa_data.json     (2.1 MB, 3,610 records)
 ```
 
 TQA is larger on disk because of the richer alias system (up to 19 aliases per answer
@@ -1511,7 +1515,7 @@ Key properties:
 ### Cache files and their sizes
 
 ```
-/data/user_data/anshulk/dsgen/cache/
+data/cache/
 ├── nq_data.json              (792 KB)     Stage 1: 3,610 NQ records
 ├── tqa_data.json             (2.1 MB)     Stage 1: 3,610 TQA records
 ├── nq_generations.json       (19 MB)      Stage 2: NQ generation results (3,610)
@@ -2083,7 +2087,7 @@ cal_frac = 0.70, zu_frac = 0.75
 **Pipeline runtimes (from cached data):**
 - Stages 1-3: Loaded from cache (instant)
 - Stage 4 (SGen-Semi, 500 splits): **6 seconds** (CPU-only)
-- Results saved to: `/data/user_data/anshulk/dsgen/results/baseline_results.json`
+- Results saved to: `data/results/baseline_results.json`
 
 ---
 
@@ -2555,5 +2559,5 @@ Methods 2 and 3 results will be added after those experiments complete.
 
 *Document last updated April 6, 2026. All results are final — pipeline fully complete
 (3,610 TQA calibration, 3,610 NQ shifted test, 500 splits, GPT-4o-mini generation,
-DeBERTa-v2-xxlarge-mnli entailment). Results in `/data/user_data/anshulk/dsgen/results/baseline_results.json`.*
+DeBERTa-v2-xxlarge-mnli entailment). Results in `data/results/baseline_results.json`.*
 

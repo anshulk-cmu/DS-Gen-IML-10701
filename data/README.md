@@ -1,7 +1,7 @@
 # DS-SGen — Data Directory
 
 Tracked copy of the cached pipeline artifacts and experimental results for the
-DS-SGen (Distribution-Shift Selective Generation) project (10-701 IML, Spring 2026).
+DS-SGen paper (Domain-Shift-Aware Selective Generation under Covariate and Concept Shift).
 
 | Summary | |
 |---|---|
@@ -55,11 +55,12 @@ data/
     └── synthetic_final_weight_quartile.json   # Covariate-vs-concept diagnostic
 ```
 
-At runtime the code reads/writes via **symlinks** at the repo root:
-`cache/` → `/data/user_data/anshulk/dsgen/cache` and `results/` → `/data/user_data/anshulk/dsgen/results`. Those symlinks are `.gitignore`d so they don't pollute the tree.
-
-`data/cache/` and `data/results/` are **real file copies** — this is what's
-actually committed to the repo.
+The code reads and writes these folders directly: `configs/default.yaml` sets
+`paths.cache_dir: data/cache` and `paths.results_dir: data/results`, resolved
+against the repository root by `ds_sgen/utils.py::load_config`. Running any
+`run_*.py` script therefore **overwrites** the tracked files here (use
+`git checkout -- data/` to restore them). In the docs, `cache/...` and
+`results/...` mean `data/cache/...` and `data/results/...`.
 
 ---
 
@@ -277,28 +278,10 @@ See `ds_sgen/screening.py:print_scorecard` for the human-readable form. Keys inc
 
 ## 5. Using the data
 
-### 5.1 Drop-in replacement for the symlinks
+### 5.1 Paths
 
-Two clean options to use the tracked copies instead of the cluster symlinks:
-
-**Option A — edit the config:**
-
-```yaml
-# configs/default.yaml
-paths:
-  cache_dir:   "data/cache"
-  results_dir: "data/results"
-```
-
-**Option B — replicate the symlinks:**
-
-```bash
-mkdir -p /data/user_data/anshulk/dsgen
-ln -s "$(pwd)/data/cache"   /data/user_data/anshulk/dsgen/cache
-ln -s "$(pwd)/data/results" /data/user_data/anshulk/dsgen/results
-```
-
-Either way the downstream scripts `run_synthetic_eps.py`, `plot_synthetic_final.py`, and all verification snippets will find the data without modification.
+No setup is needed: the default config already points at `data/cache` and
+`data/results`. Run scripts from the repository root.
 
 ### 5.2 Python snippets
 
@@ -397,20 +380,20 @@ SLURM job ID: **7352717** (the final ε sweep run, which reconstructed the pair 
 
 ### 8.1 What's deterministic
 
-Given the committed caches + `seed=42`, every downstream result is bit-exactly reproducible:
+Given the committed caches and `seed=42`, the downstream steps below are deterministic (bit-exact agreement across library versions or platforms has not been checked):
 
 - KMeans clustering (K=10, random_state=42)
 - Accuracy-sorted partition (deterministic given cluster labels + accuracies)
 - Source/target sampling (`np.random.RandomState(42)`)
 - M1/M3 split seeds (base_seed + s for s in range(500))
-- Logistic regression in M3 (`LogisticRegression(random_state=seed)`)
+- Logistic regression in M3 and in screening (`LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000)`; lbfgs is deterministic, no `random_state` is set)
 - Deterministic plot output (matplotlib with fixed figsize and seed where applicable)
 
 ### 8.2 What's not deterministic
 
 - **Synthetic pool generation itself** depends on GPT-4o-mini's temperature-1.0 sampling. Re-running `run_synthetic_a.py` from scratch (no cache) produces a *different* 1831-item pool, and downstream numbers differ slightly. The pool committed here is the exact pool from SLURM job 7346859.
 - **DeBERTa entailment** uses float16 on GPU; sub-percent numerical differences across GPU models are possible. Differences below the significance of any downstream test.
-- **OpenAI generations are frozen** in the committed cache. Re-generating would pull from an updated model, which could change the empirical accuracy by ~1 percentage point (within our error bars).
+- **OpenAI generations are frozen** in the committed cache. The API alias `gpt-4o-mini` is not pinned to a dated snapshot, so re-generating may query a different model version; the size of any resulting change is not known.
 
 ### 8.3 Verifying provenance
 
@@ -440,9 +423,9 @@ Expected output: `All 4 success criteria verified from data/`.
 
 ## 9. Licensing + attribution
 
-- **Our additions** (synthetic pool, pair definitions, synthetic_final_* results) are released under the same license as the repo.
-- **Base datasets** retain their upstream licenses (see §6.1). Including cached records is permitted under each dataset's research-use provisions.
-- **Generated content** (GPT-4o-mini answers): governed by OpenAI's usage policies. Factoid Q/A pairs are fact-expressive and not subject to copyright; the cached generations are redistributable.
+- **Our additions** (synthetic pool, pair definitions, synthetic_final_* results) are released under the repository licence (to be added by the authors; none is included yet).
+- **Base datasets** retain their upstream licences (see §6.1; the licence names there were not re-checked against the upstream dataset cards). Check the upstream terms before redistributing the cached records.
+- **Generated content** (GPT-4o-mini answers and the synthetic question pool): subject to OpenAI's terms of use. We make no legal claim about its copyright status.
 - **Models referenced** (not redistributed): DeBERTa-v2-xxlarge-mnli (MIT), all-MiniLM-L6-v2 (Apache 2.0), GPT-4o-mini (proprietary, API-only).
 
 ---

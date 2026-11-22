@@ -6,20 +6,41 @@ import random
 import tempfile
 
 import numpy as np
-import torch
 import yaml
 
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def resolve_path(p: str) -> str:
+    """Return p unchanged if absolute, else resolved against the repository root."""
+    return p if os.path.isabs(p) else os.path.normpath(os.path.join(REPO_ROOT, p))
+
+
 def load_config(path: str) -> dict:
-    """Load a YAML config file and return as dict."""
+    """Load a YAML config file and return as dict.
+
+    Relative entries of paths.{cache_dir, results_dir, hf_cache} are resolved
+    against the repository root, so scripts work from any working directory
+    on Windows and Linux (defaults: data/cache, data/results, data/model_cache).
+    """
     with open(path, "r") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    paths = cfg.get("paths", {})
+    for key in ("cache_dir", "results_dir", "hf_cache"):
+        if paths.get(key):
+            paths[key] = resolve_path(paths[key])
+    return cfg
 
 
 def set_seed(seed: int):
     """Set all random seeds for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
+    try:  # torch is only needed for generation-side stages; re-plotting from cache works without it
+        import torch
+    except ImportError:
+        return
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
@@ -41,7 +62,7 @@ def load_cache(path: str):
 def save_cache(data, path: str):
     """Atomic JSON write: writes to a temp file then renames.
 
-    Prevents corrupted cache if SLURM preempts mid-write.
+    Prevents a corrupted cache if the job is interrupted mid-write.
     """
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(

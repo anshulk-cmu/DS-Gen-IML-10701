@@ -15,9 +15,10 @@ from collections import Counter
 import numpy as np
 import matplotlib.pyplot as plt
 
-CACHE = "/data/user_data/anshulk/dsgen/cache"
-RESULTS = "/data/user_data/anshulk/dsgen/results"
-OUT = "/home/anshulk/ds-gen-10701/plots"
+ROOT = os.path.dirname(os.path.abspath(__file__))
+CACHE = os.path.join(ROOT, "data", "cache")
+RESULTS = os.path.join(ROOT, "data", "results")
+OUT = os.path.join(ROOT, "plots")
 
 
 def _load(path):

@@ -1,8 +1,12 @@
 # Screening Analysis — PopQA Head→Tail and the Dataset Selection Problem for DS-SGen
 
 **Date:** 2026-04-11
-**Authors:** Anshul Kumar, Justin Luan (CMU 10-701)
+**Authors:** Anshul Kumar, Justin Luan (Carnegie Mellon University)
 **Context:** After TQA→NQ revealed that DS-SGen's importance reweighting collapses under concept shift, we designed a 6-test screening protocol and applied it to PopQA head→tail — a candidate pair that was supposed to isolate *pure covariate shift*. This document records what we found, why it matters, and why we now believe the DS-SGen method is theoretically correct but finding a dataset that satisfies its assumptions at non-trivial ε is genuinely hard.
+
+> **Historical development notes, not the paper.** This document was written during the project, before the paper, and is kept for transparency. Parts of it are out of date or wrong. Where it disagrees with the paper, the paper and the cached results in `data/` are authoritative. Method 1 (`ds_sgen/sgen_semi.py`) is a simplified SGen-Semi-style baseline, not a faithful reimplementation of Lee et al. (2024); see its module docstring. Paths written as `cache/...` and `results/...` mean `data/cache/...` and `data/results/...`; source line numbers cited here may have drifted.
+>
+> Known stale or incorrect content in this file: the battery has seven pass/fail outcomes (T1, T2a, T2b, T3-T6), not six; the strong T6 form is an OLS fit, not logistic; the TQA->NQ ESS ratio from the screening code is 0.072 (uncapped weights), while 0.308 is Method 3's capped Kish ratio; the TQA->NQ quartile spread is -0.084; the thresholds were set after observing the TQA->NQ failure.
 
 ---
 
@@ -361,10 +365,10 @@ Initially we accidentally ran stage 3 on CPU (the debug shell node had no GPU), 
 
 ### 8.6 Infrastructure
 
-- **Cluster:** Babel (CMU SCS).
+- **Cluster:** a university SLURM cluster.
 - **Partition:** `general` (after we learned the hard way that `preempt` gets killed mid-run; our first attempt was preempted at tail question 700/1000).
 - **GPU:** NVIDIA RTX A6000, 49,140 MiB, cuda:0.
-- **Environment:** `/data/user_data/anshulk/envs/dsgen`, Python 3.10, transformers 4.x, torch 2.x, sentence-transformers 5.3.
+- **Environment:** conda env `dsgen`, Python 3.10, transformers 4.x, torch 2.x, sentence-transformers 5.3.
 - **Job resources:** 1 GPU, 4 CPUs, 48 GB RAM, 4-hour time limit.
 - **Run ID:** SLURM job 7056159.
 - **Total elapsed:** 198 seconds (3 minutes 18 seconds) from SLURM start to completion, including model downloads.
@@ -762,7 +766,7 @@ Weighted conformal prediction — the theoretical machinery behind DS-SGen — i
 
 Most LLM robustness papers assume that if a method works under covariate shift in theory, then it applies to real deployment scenarios. Our results argue that this assumption is dangerous. LLM failures under domain shift are dominated by *knowledge gaps* — regions of entity or topic space that the training distribution undercovered — and knowledge gaps are a property of $P(Y|X)$, not $P(X)$. Any method that reweights by a function of $X$ alone is at a structural disadvantage for handling them.
 
-The natural extension is to develop methods that can detect and respond to $P(Y|X)$ shift, perhaps using self-consistency signals ($f_{M2}$) or model-ensemble disagreement as a proxy for knowledge uncertainty. This is out of scope for our semester project, but it is the direction our negative results point to.
+The natural extension is to develop methods that can detect and respond to $P(Y|X)$ shift, perhaps using self-consistency signals ($f_{M2}$) or model-ensemble disagreement as a proxy for knowledge uncertainty. This is out of scope for this project, but it is the direction our negative results point to.
 
 ### 15.4 What we would do differently
 
@@ -839,7 +843,7 @@ VERDICT: 1/7 pass — pair may not produce the M1/M2 fail → M3 rescues story.
 
 ```
 Start:  Sat Apr 11 01:23:21 EDT 2026
-Node:   babel-w9-28 (NVIDIA RTX A6000)
+Node:   <node> (NVIDIA RTX A6000)
 Stage 1 (load PopQA):             < 1 sec (cached)
 Stage 2 (generation):             cached (prior run)
 Stage 3 (entailment, both sets):  3 min 14 sec on GPU
@@ -861,7 +865,7 @@ Total elapsed:                    198 sec = 3 min 18 sec
 | Pipeline stages | `ds_sgen/data_loading.py`, `generate_responses.py`, `entailment_scoring.py` | `load_nq`, `load_tqa`, `generate_and_cache_openai`, `score_and_cache` |
 | Orchestrators | `run_baseline.py`, `run_conservative.py`, `run_importance_weighted.py`, `run_epsilon_sweep.py`, `run_screening.py` | `main` in each |
 | SLURM | `scripts/run_screening.sh` | (A6000, general partition, 4h limit) |
-| Results | `/data/user_data/anshulk/dsgen/results/` | `baseline_results.json`, `conservative_results.json`, `importance_weighted_results.json`, `epsilon_sweep_results.json`, `screening_popqa_results.json` |
+| Results | `data/results/` | `baseline_results.json`, `conservative_results.json`, `importance_weighted_results.json`, `epsilon_sweep_results.json`, `screening_popqa_results.json` |
 | Configuration | `configs/default.yaml` | sections `sgen`, `importance_weighted`, `screening`, `epsilon_sweep` |
 
 ---

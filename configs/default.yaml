@@ -1,12 +1,16 @@
-# DS-SGen Baseline Configuration
-# Validated against: Lee et al., "Selective Generation for Controllable LMs" (NeurIPS 2024)
+# DS-SGen configuration (all experiments in the paper use these values).
+# Settings follow Lee et al., "Selective Generation for Controllable LMs" (NeurIPS 2024)
+# where applicable; deviations are noted inline. Method 1 is a simplified
+# SGen-Semi-style baseline, not a reimplementation of their Algorithm 2.
 
 # === Paths ===
 paths:
   entailment_model: "microsoft/deberta-v2-xxlarge-mnli"  # 1.5B params, label order: {0:CONTRADICTION, 1:NEUTRAL, 2:ENTAILMENT}
-  cache_dir: "/data/user_data/anshulk/dsgen/cache"
-  results_dir: "/data/user_data/anshulk/dsgen/results"
-  hf_cache: "/data/user_data/anshulk/dsgen/model_cache"
+  # Relative paths are resolved against the repository root (ds_sgen/utils.py::load_config).
+  # WARNING: the run_*.py scripts write to results_dir/cache_dir and overwrite the tracked files.
+  cache_dir: "data/cache"
+  results_dir: "data/results"
+  hf_cache: "data/model_cache"                     # Hugging Face download cache (git-ignored)
 
 # === Datasets ===
 data:
@@ -15,7 +19,7 @@ data:
   tqa_dataset: "mandarjoshi/trivia_qa"              # NOT "trivia_qa" — full namespaced ID required
   tqa_config: "unfiltered.nocontext"                # Skips 29GB doc download; same questions/answers as "unfiltered"
   tqa_split: "validation"                           # 11,313 questions
-  tqa_sample_size: 3610                             # Match NQ size for equal calibration/shift
+  tqa_sample_size: 3610                             # Equal pool sizes (class-balanced domain classifier)
   sample_seed: 42
 
 # === LLM Generation (GPT-4o-mini via OpenAI API) ===
@@ -40,14 +44,14 @@ entailment:
 sgen:
   epsilon: 0.25                    # Target FDR-E level (paper's main experimental setting)
   delta: 0.02                      # PAC confidence (1-delta = 0.98), matches paper experiments
-  delta_p: 1.0e-5                  # Pseudo-labeling failure prob; subtracted from delta before Bonferroni
+  delta_p: 1.0e-5                  # Subtracted from delta before Bonferroni; not used by any other bound in this code
   cal_frac: 0.70                   # Fraction of calibration dataset for calibration (rest = in-domain test)
   zu_frac: 0.75                    # Fraction of calibration as unlabeled Z_U (rest = labeled Z_E)
-  epsilon_e: 0.05                  # Conformal pseudo-labeling error rate (stricter for better pseudo-labels)
+  epsilon_e: 0.05                  # Conformal pseudo-labeling level: Pr(pseudo=0 | correct) <= epsilon_e
   n_splits: 500                    # Number of random calibration splits (SE ≈ 0.021 at p=0.35, tight enough for method comparison)
   n_grid: 20                       # Percentile-based grid points per score (fewer = less Bonferroni penalty)
-  # Calibration: TQA (higher correctness 61%, stronger feature correlation r=0.45)
-  # Shifted test: NQ (lower correctness 40%, weaker feature correlation r=0.34)
+  # Calibration: TQA (cached correctness 70.8%, fM1-correctness r = 0.349)
+  # Shifted test: NQ (cached correctness 43.1%, fM1-correctness r = 0.318)
   # Selection: fM1-only (1D threshold, |H|=20 instead of 20*9=180)
   cal_dataset: "tqa"               # Which dataset to calibrate on: "nq" or "tqa"
   selection_mode: "fm1_only"       # "fm1_only", "fm2_only", or "both"
@@ -78,8 +82,8 @@ importance_weighted:
   embedding_model: "all-MiniLM-L6-v2"  # 384-dim, from sentence-transformers
   classifier: "logistic_regression"
   classifier_C: 1.0                     # regularization strength (inverse)
-  weight_clip_percentile: 95            # clip extreme weights at this percentile
-  weight_clip_percentiles: [90, 95, 99] # sensitivity sweep
+  weight_clip_percentile: 95            # cap raw odds at this percentile, then normalise to sum n
+  weight_clip_percentiles: [90, 95, 99] # not read by any script (no sensitivity sweep was run)
   n_splits: null                        # null = use sgen.n_splits
 
 # === Screening Pre-flight ===
@@ -102,16 +106,18 @@ synthetic_eps:
   include_tqa_nq: true   # also sweep on the TQA->NQ concept-shift pair
 
 # === Synthetic QA (Design A): generate pool from scratch via GPT-4o-mini ===
+# The final pair uses alpha = 0.75, the default hard-coded in run_synthetic_eps.py::reconstruct_pair
+# (chosen by pick_best_alpha in run_synthetic_a.py; that sweep record is not in the repo).
 synthetic_a:
   per_cell: 80                  # items per (topic, tier); 10 topics x 3 tiers x 80 = 2400
-  K: 10                         # one cluster per semantic topic on the generated pool
+  K: 10                         # KMeans clusters on the generated pool (they mostly, not exactly, align with topics)
   n_source: 800
   n_target: 800
   fm1_quantile: 0.00            # no fM1 filter — use the full generated pool
   target_clf_acc: 0.66
   partition_strategy: "accuracy_sorted"  # top-K/2 acc clusters -> A (source); bottom -> B (target)
 
-# === Synthetic Covariate-Shift Experiment ===
+# === Superseded synthetic design on a TQA-derived pool (run_synthetic.py; not used in the paper) ===
 synthetic:
   fm1_quantile: 0.40            # keep top 60% of TQA by fM1 (pushes source acc >= 0.80 floor)
   K: 20                         # k-means topics on filtered pool

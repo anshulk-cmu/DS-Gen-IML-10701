@@ -1,7 +1,10 @@
 """Entailment scoring using DeBERTa-v2-xxlarge-mnli.
 
 Two modes:
-  1. Correctness (unidirectional argmax): NLI(greedy → reference), argmax == ENTAILMENT
+  1. Correctness (unidirectional argmax): NLI(greedy → reference), argmax == ENTAILMENT.
+     Only the single `reference_answer` is used (NQ: first listed answer; TQA:
+     primary value); `all_answers` and aliases are not used, and the question is
+     not part of the NLI premise.
   2. Self-consistency (bidirectional argmax): for all sampled answer pairs (i,j),
      both NLI(i→j) and NLI(j→i) must have argmax == ENTAILMENT
 

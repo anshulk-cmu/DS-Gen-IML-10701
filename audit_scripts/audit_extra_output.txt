@@ -1,0 +1,19 @@
+Fig6: #thresholds where F_NQ < F_TQA: 5 range (np.float64(-0.47904444143794533), np.float64(-8.192452867206157e-08)) max(F_TQA-F_NQ) 0.000554016620498615
+Fig7 nq frac<0.1 0.4368421052631579 frac>0.9 0.05013850415512466 frac in [0.1,0.9] 0.5130193905817174
+Fig7 tqa frac<0.1 0.18421052631578946 frac>0.9 0.047922437673130196 frac in [0.1,0.9] 0.7678670360110803
+music and composers in own cluster 7 : n 181 acc 0.7845303867403315 | outside: n 17 acc 0.9411764705882353 | clusters outside Counter({8: 9, 1: 5, 4: 1, 9: 1, 6: 1})
+   S 57 T 121 unused 20
+literature and authors in own cluster 8 : n 170 acc 0.7823529411764706 | outside: n 7 acc 0.7142857142857143 | clusters outside Counter({3: 4, 5: 1, 1: 1, 4: 1})
+   S 115 T 36 unused 26
+cluster 0 n 172 majority sports and athletics 168 purity=0.977
+cluster 1 n 178 majority world history 126 purity=0.708
+cluster 2 n 190 majority food and cooking 185 purity=0.974
+cluster 3 n 111 majority biology and animals 106 purity=0.955
+cluster 4 n 183 majority astronomy and space 162 purity=0.885
+cluster 5 n 200 majority geography 175 purity=0.875
+cluster 6 n 252 majority physics and chemistry 145 purity=0.575
+cluster 7 n 183 majority music and composers 181 purity=0.989
+cluster 8 n 196 majority literature and authors 170 purity=0.867
+cluster 9 n 166 majority visual art and painters 159 purity=0.958
+pool n in A 909 in B 922
+source frac from A 0.69875 target frac from A 0.2375

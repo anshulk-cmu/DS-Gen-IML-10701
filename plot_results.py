@@ -1104,7 +1104,7 @@ def plot_weight_analysis(iw_results):
     for bar, val in zip(bars, [n_abstain, n_valid_answering, n_invalid]):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
                 str(val), ha='center', fontsize=11)
-    ax.set_ylabel("Number of Splits (out of 100)")
+    ax.set_ylabel(f"Number of Splits (out of {len(per_split)})")
     ax.set_title("Method 3: Split Outcomes on Shifted Domain")
 
     # Bottom-right: efficiency

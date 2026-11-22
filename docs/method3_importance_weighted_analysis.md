@@ -1,7 +1,11 @@
 # Method 3: DS-SGen with Importance Reweighting — Complete Analysis
 
 **DS-SGen: Domain-Shift-Aware Selective Generation for Reliable LLMs**
-**Anshul Kumar, Justin Luan — Carnegie Mellon University, 10-701, Spring 2026**
+**Anshul Kumar, Justin Luan — Carnegie Mellon University**
+
+> **Historical development notes, not the paper.** This document was written during the project, before the paper, and is kept for transparency. Parts of it are out of date or wrong. Where it disagrees with the paper, the paper and the cached results in `data/` are authoritative. Method 1 (`ds_sgen/sgen_semi.py`) is a simplified SGen-Semi-style baseline, not a faithful reimplementation of Lee et al. (2024); see its module docstring. Paths written as `cache/...` and `results/...` mean `data/cache/...` and `data/results/...`; source line numbers cited here may have drifted.
+>
+> Known stale or incorrect content in this file: the M3 bound uses the importance-weighted failure rate (not an unweighted count); the Kish ratio 1,112.5/3,610 = 30.8% is over all 3,610 TQA questions (per split over Z_U: mean 584.3 of 1,895); the raw maximum odds 32.66 and the post-normalisation maximum 5.69 are on different scales (the 95th-percentile cap is 1.403 on the raw scale); the weighted quantile omits the test-point mass of Tibshirani et al., so it is not a proof of validity; some passages refer to 100 splits (the reported runs use 500).
 
 This document records every decision, every number, every piece of math, and every
 result from the Method 3 (Importance Reweighting) implementation. It is the truth
@@ -709,7 +713,7 @@ This is important for the epsilon sweep, which doesn't need to recompute embeddi
 2. **Quality:** Good balance of quality vs. speed for sentence-level tasks. Not
    state-of-the-art but well-established.
 3. **Availability:** In the sentence-transformers library, already installed in our
-   conda env. Cached in /data/user_data/anshulk/dsgen/model_cache/.
+   conda env. Cached in data/model_cache/.
 4. **Dimensionality:** 384 dims is low enough for logistic regression to work well
    without regularization issues.
 
@@ -1293,7 +1297,7 @@ Follows the pattern of `run_conservative.py`:
 ### Pre-flight Check
 
 The embedding model (all-MiniLM-L6-v2) must be available. On the SLURM cluster, it's
-cached in `/data/user_data/anshulk/dsgen/model_cache/`. If not available, the
+cached in `data/model_cache/`. If not available, the
 orchestrator prints a helpful error with the exact command to download it.
 
 ---
