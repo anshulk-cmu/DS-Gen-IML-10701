@@ -1,6 +1,6 @@
 # DS-SGen: Domain-Shift-Aware Selective Generation under Covariate and Concept Shift
 
-**Anshul Kumar, Justin Luan** (Carnegie Mellon University)
+**Anshul Kumar** (Carnegie Mellon University)
 
 **Paper:** arXiv: (link to be added on release)
 **Contact:** Anshul Kumar, <anshul95@cmu.edu>
@@ -176,12 +176,16 @@ python run_synthetic_eps.py                       # final pair (α = 0.75), ε s
 ```bibtex
 @misc{kumar2026dssgen,
   title  = {{DS-SGen}: Domain-Shift-Aware Selective Generation under Covariate and Concept Shift},
-  author = {Kumar, Anshul and Luan, Justin},
+  author = {Kumar, Anshul},
   year   = {2026},
   note   = {arXiv preprint},
   url    = {https://arxiv.org/abs/XXXX.XXXXX}
 }
 ```
+
+## Acknowledgments
+
+Thanks to Justin Luan for helpful discussions in the early stages of this work.
 
 ## References
 
